@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE Settings
+.vscode/
+.idea/
+
+# Project Outputs
+output/logs/
+output/flags/
+session_*/
+*.mp4
+*.avi
+*.mov
+*.csv
+
+# Exceptions (Keep the basic output folder structure but ignore content)
+!output/.keep
