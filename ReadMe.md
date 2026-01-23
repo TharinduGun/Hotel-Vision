@@ -12,6 +12,11 @@ A complete pipeline ported from Google Colab to local Windows execution.
 - **Features**:
   - Trims video to a specified duration (e.g., 30s) using OpenCV.
   - Detects and tracks objects.
+  - **Phase 1: Tracking Stability**: Uses Explicit ByteTrack with tuned parameters (`track_buffer=150`, `conf=0.20`, `imgsz=960`) to handle partial visibility.
+  - **Phase 2: Occlusion Handling**: Implements a custom **ID Re-linking Layer** (`utils/occlusion_handler.py`).
+    - Maintains a buffer of "lost" tracks.
+    - If a new ID appears, checks against lost tracks using IoU and Class ID.
+    - Restores the original "Logical ID" if a match is found (e.g., person walks behind a shelf).
   - Filters recurring objects based on persistence.
   - unique "Events" logged to CSV.
   - Generates an annotated output video.
@@ -79,7 +84,8 @@ video-analytics/
 
 ## 📚 References & Tutorials
 
-Useful resources for understanding ByteTrack and Object Tracking implementations:
+Useful resources,
+project links:
 
 - [How to Implement ByteTrack](https://www.labellerr.com/blog/how-to-implement-bytetrack/)
 - [Object Detection & Tracking using ByteTrack](https://medium.com/tech-blogs-by-nest-digital/object-tracking-object-detection-tracking-using-bytetrack-0aafe924d292)

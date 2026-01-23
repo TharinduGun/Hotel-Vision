@@ -1,0 +1,15 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+# ByteTrack tracker settings for person/vehicle tracking
+# Documentation: https://docs.ultralytics.com/modes/track/
+
+tracker_type: bytetrack  # tracker type, ['botsort', 'bytetrack']
+track_high_thresh: 0.4  # threshold for the first association
+track_low_thresh: 0.15  # threshold for the second association
+new_track_thresh: 0.75  # threshold for init new track if the detection does not match any tracks
+track_buffer: 120 # buffer to calculate the time when to remove tracks
+match_thresh: 0.7  # threshold for matching tracks
+
+# Additional parameters required by newer Ultralytics versions
+fuse_score: True  # fuse the detection score with the track score
+gmc_method: sparseOptFlow  # method for global motion compensation
+

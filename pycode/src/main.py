@@ -21,7 +21,7 @@ from utils.occlusion_handler import OcclusionHandler
 # ----------------------------
 VIDEO_PATH = os.path.abspath(r"D:\Work\jwinfotech\Videoanalystics\video-analytics\resources\videos\Indoor_Original_VideoStream.mp4")   # <-- put your CCTV video here
 MODEL_PATH = "yolov8m.pt"                             # use yolov8n.pt if CPU is slow
-RUN_SECONDS = 30                                      # <-- only process first 30 sec
+RUN_SECONDS = 60                                      # <-- only process first 30 sec
 CLASSES = [0, 2]                                      # 0=person, 2=car
 MIN_PERSISTENCE = 60                                  # in frames (same as your notebook)
 
