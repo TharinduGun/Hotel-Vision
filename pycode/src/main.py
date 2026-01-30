@@ -180,11 +180,15 @@ def main():
             # Store tracks from previous frame to detect lost IDs (using LOGICAL IDs)
             prev_frame_tracks = {} 
             seen_ids_in_split = set()
+            
+            # Persistent "Latest State" for every logical ID seen in this split
+            # This helps if a track flickers (dropped by detector for 1 frame, then reappears next)
+            last_seen = {}
 
             for frame_idx, r in enumerate(tqdm(results, total=total_frames, desc="Tracking")):
                 # Plot returns BGR numpy array
-                frame_bgr = r.plot()
-                out_writer.write(frame_bgr)
+                # frame_bgr = r.plot()  <-- REMOVED: We do custom drawing below
+                # out_writer.write(frame_bgr) <-- REMOVED
                 
                 curr_frame_tracks = {}
                 current_time = (s_idx * split_seconds) + (frame_idx / fps)
@@ -207,7 +211,8 @@ def main():
                             relinked_old_id = occlusion_handler.try_relink(
                                 new_track_bbox=box,
                                 new_cls_id=c,
-                                current_time=current_time
+                                current_time=current_time,
+                                frame_size=(width, height)
                             )
                             if relinked_old_id:
                                 print(f" [Link] ID {tid} -> {relinked_old_id}")
@@ -219,9 +224,20 @@ def main():
                         # Store current track state using LOGICAL ID
                         curr_frame_tracks[logical_tid] = {'bbox': box, 'cls': c}
                         
+                        # Update Last Seen (Master Registry)
+                        last_seen[logical_tid] = {
+                            'bbox': box, 
+                            'cls': c, 
+                            'time': current_time
+                        }
+                        
                         # LOGGING
                         global_now = current_time
                         key = (s_idx, logical_tid)
+                        
+                        # Calculate center for post-processing merge
+                        cx = (box[0] + box[2]) / 2
+                        cy = (box[1] + box[3]) / 2
 
                         if key not in summary_data:
                             summary_data[key] = {
@@ -230,22 +246,67 @@ def main():
                                 "Class": "person" if c == 0 else "car",
                                 "Start_Time_Sec": round(global_now, 2),
                                 "End_Time_Sec": round(global_now, 2),
-                                "Frame_Count": 1
+                                "Frame_Count": 1,
+                                "Start_Center": (cx, cy),
+                                "End_Center": (cx, cy)
                             }
                         else:
                             summary_data[key]["End_Time_Sec"] = round(global_now, 2)
                             summary_data[key]["Frame_Count"] += 1
-                        
+                            summary_data[key]["End_Center"] = (cx, cy)
+
+                # --- CUSTOM ANNOTATION (Visualizing the LOGICAL ID) ---
+                # We draw on the original frame using the re-linked IDs we just calculated.
+                # r.orig_img is the original numpy array (BGR). We copy it to avoid mutating source if buffered.
+                annotated_frame = r.orig_img.copy()
+
+                for tid, tdata in curr_frame_tracks.items():
+                    bx = tdata['bbox']
+                    cls_id = tdata['cls']
+                    
+                    # Convert float box to int
+                    x1, y1, x2, y2 = int(bx[0]), int(bx[1]), int(bx[2]), int(bx[3])
+                    
+                    # Color setup (person=Green, car=Blue, others=White)
+                    color = (0, 255, 0) if cls_id == 0 else (255, 0, 0)
+                    if cls_id not in [0, 2]: color = (255, 255, 255)
+
+                    # Draw BBox
+                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+                    
+                    # Draw Label: "ID: <logical_id>"
+                    label = f"ID: {tid}"
+                    if cls_id == 0: label += " (Person)"
+                    elif cls_id == 2: label += " (Car)"
+                    
+                    t_size = cv2.getTextSize(label, 0, 0.6, 2)[0]
+                    cv2.rectangle(annotated_frame, (x1, y1 - t_size[1] - 3), (x1 + t_size[0], y1), color, -1)
+                    cv2.putText(annotated_frame, label, (x1, y1 - 2), 0, 0.6, (255, 255, 255), 2, lineType=cv2.LINE_AA)
+
+                # Write the CUSTOM frame, not r.plot()
+                out_writer.write(annotated_frame)
+                
                 # 2. Detect Lost Tracks (Present in Prev, Missing in Curr)
-                for pid, pdata in prev_frame_tracks.items():
+                for pid in prev_frame_tracks:
                     if pid not in curr_frame_tracks:
                         # logical ID 'pid' was here last frame, gone now. Buffer it.
-                        occlusion_handler.add_lost_track(
-                            track_id=pid,
-                            bbox=pdata['bbox'],
-                            cls_id=pdata['cls'],
-                            timestamp=current_time
-                        )
+                        # USE LAST_SEEN to get the most up-to-date info
+                        if pid in last_seen:
+                            ls_data = last_seen[pid]
+                            occlusion_handler.add_lost_track(
+                                track_id=pid,
+                                bbox=ls_data['bbox'],
+                                cls_id=ls_data['cls'],
+                                timestamp=current_time
+                            )
+                        else:
+                            # Fallback (shouldn't happen if logic is correct)
+                             occlusion_handler.add_lost_track(
+                                track_id=pid,
+                                bbox=prev_frame_tracks[pid]['bbox'],
+                                cls_id=prev_frame_tracks[pid]['cls'],
+                                timestamp=current_time
+                            )
 
                 # 3. Clean up old lost tracks
                 occlusion_handler.cleanup(current_time)
@@ -258,11 +319,30 @@ def main():
 
     # --- 4. STEP 3: DATA FILTERING & EXPORT ---
     print("\n--- Generating CSV Report ---")
+    
+    # Convert dict to list
+    raw_events = list(summary_data.values())
+    
+    # Apply Event Continuity Merging (Phase 3)
+    from utils.event_merger import EventMerger
+    merger = EventMerger(max_time_gap=5.0, max_speed_mps=1000.0)
+    refined_events = merger.merge_events(raw_events)
 
-    final_report_rows = [
-        row for row in summary_data.values()
-        if row["Frame_Count"] >= MIN_PERSISTENCE or row["Class"] == "car"
-    ]
+    final_report_rows = []
+    
+    for row in refined_events:
+        # Filter short events
+        if row["Frame_Count"] >= MIN_PERSISTENCE or row["Class"] == "car":
+            # Remove internal keys not for CSV (Start/End Center)
+            csv_row = {
+                "Split": row["Split"],
+                "ID": row["ID"],
+                "Class": row["Class"],
+                "Start_Time_Sec": row["Start_Time_Sec"],
+                "End_Time_Sec": row["End_Time_Sec"],
+                "Frame_Count": row["Frame_Count"]
+            }
+            final_report_rows.append(csv_row)
 
     with open(summary_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(

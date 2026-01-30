@@ -11,16 +11,47 @@ A complete pipeline ported from Google Colab to local Windows execution.
 - **Function**: Processes CCTV footage to track objects (People, Cars) using YOLOv8.
 - **Features**:
   - Trims video to a specified duration (e.g., 30s) using OpenCV.
-  - Detects and tracks objects.
-  - **Phase 1: Tracking Stability**: Uses Explicit ByteTrack with tuned parameters (`track_buffer=150`, `conf=0.20`, `imgsz=960`) to handle partial visibility.
-  - **Phase 2: Occlusion Handling**: Implements a custom **ID Re-linking Layer** (`utils/occlusion_handler.py`).
-    - Maintains a buffer of "lost" tracks.
-    - If a new ID appears, checks against lost tracks using IoU and Class ID.
-    - Restores the original "Logical ID" if a match is found (e.g., person walks behind a shelf).
-  - Filters recurring objects based on persistence.
-  - unique "Events" logged to CSV.
-  - Generates an annotated output video.
-- **Output**: Results are saved to `output/logs/session_YYYYMMDD_HHMMSS/`.
+  - Detects and tracks objects with high persistence.
+  - **Auto-Recover**: Handles temporary obstructions and re-links lost objects.
+  - **Event Merge**: Post-processes data to fuse fragmented events into cohesive timelines.
+  - **Output**: Results are saved to `output/logs/session_YYYYMMDD_HHMMSS/`.
+
+## 🧠 Development Phases & Logic
+
+Since raw YOLO tracking often fails in real-world CCTV scenarios (occlusions, exits, low confidence), we implemented a multi-layer solution.
+
+### Phase 1: Base Tracking Stability
+
+**Goal**: Get a good baseline tracker.
+
+- **Implementation**: Used **ByteTrack** instead of standard BoT-SORT.
+- **Why?**: ByteTrack utilizes low-confidence detections (which other trackers discard) to maintain tracks when objects are partially obscured or blurry.
+- **Tuning**: Configured `track_buffer=120`, `conf=0.20`, `imgsz=960` for small object detection.
+
+### Phase 2: Occlusion Handling & ID Re-linking
+
+**Goal**: Prevent "ID Switching" when a person walks behind a pillar or another person.
+
+- **Problem**: If an object disappears for >1 second, standard trackers assign a new ID (e.g., ID 5 -> ID 12).
+- **Solution**: We built a custom **Occlusion Handler** (`utils/occlusion_handler.py`).
+  1. **Logical IDs**: We maintain a persistent "Logical ID" separate from the tracker's raw ID.
+  2. **Adaptive Thresholds**: Re-linking distance is dynamic (`2.5x` the object's size). A large person close to the camera is allowed to move further pixels than a small person in the back.
+  3. **Dual-Box Sizing**: We use the *maximum* dimensions of both the old (lost) and new (found) boxes to calculate thresholds, preventing mismatches if the object reappears partially clipped.
+  4. **Edge Boost**: If an object disappears near the frame edge (6% margin), we expand the search radius by **1.5x** to account for faster/unpredictable re-entries.
+  5. **Lower IoU**: We allow re-linking with IoU as low as **0.10** if the spatial position is plausible.
+
+### Phase 3: Event Continuity (Post-Processing)
+
+**Goal**: Merge tracks that were fragmented by long gaps (up to 5 seconds).
+
+- **Problem**: Even with Phase 2, a 4-second occlusion or a massive detector failure causes the track to break.
+- **Solution**: We implemented an **Event Merger** (`utils/event_merger.py`) that runs *after* tracking but *before* CSV export.
+  1. **Offline Lookahead**: It scans the entire list of events to find fragments.
+  2. **Best Match Algorithm**: It finds the best candidate to merge with based on spatial proximity.
+  3. **Logic**:
+      - **Merge**: If Class matches, Gap < 5.0s, and Velocity < 1000px/s (plausible movement).
+      - **Reject**: If events time-overlap significantly (ensures distinct people remain distinct).
+- **Result**: A clean CSV report where a person walking, disappearing for 4s, and reappearing is counted as **1 Unique Event** instead of 2.
 
 ## 🛠️ Setup & Usage
 
@@ -75,8 +106,10 @@ video-analytics/
 ├── output/             # Generated logs, videos, and CSVs
 ├── pycode/
 │   ├── src/
-│   │   ├── main.py     # Main detailed tracking script
+│   │   ├── main.py     # Main tracking + Phase 2/3 Integration
 │   ├── utils/
+│   │   ├── occlusion_handler.py # Phase 2 Logic
+│   │   ├── event_merger.py      # Phase 3 Logic
 ├── resources/
 │   ├── videos/         # Input raw footage
 └── README.md

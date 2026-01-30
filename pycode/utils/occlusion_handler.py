@@ -39,11 +39,14 @@ class OcclusionHandler:
             del self.buffer[k]
             # print(f"[OcclusionHandler] Track {k} expired from buffer")
 
-    def try_relink(self, new_track_bbox, new_cls_id, current_time, iou_thresh=0.3, dist_thresh=150.0):
+    def try_relink(self, new_track_bbox, new_cls_id, current_time, iou_thresh=0.10, dist_thresh=150.0, frame_size=None):
         """
         Attempt to match a NEW track to a LOST track.
         Priority 1: High IoU (Overlapping)
         Priority 2: Low Distance (Proximity - good for edge re-entry)
+        
+        Args:
+            frame_size: (width, height) tuple for edge detection.
         
         Returns: old_track_id if matched, else None.
         """
@@ -71,7 +74,35 @@ class OcclusionHandler:
             # 3. Distance Check (Fallback if IoU is low/zero)
             else:
                 dist = self._calculate_distance(new_track_bbox, data['bbox'])
-                if dist < dist_thresh:
+                
+                # --- User Requested: Dual-box adaptive threshold ---
+                # Use max dimensions of BOTH the old lost box and the new candidate box
+                old_w = data['bbox'][2] - data['bbox'][0]
+                old_h = data['bbox'][3] - data['bbox'][1]
+                new_w = new_track_bbox[2] - new_track_bbox[0]
+                new_h = new_track_bbox[3] - new_track_bbox[1]
+
+                scale = max(old_w, old_h, new_w, new_h)
+                dynamic_thresh = scale * 2.5
+                
+                # Allow a hard upper floor (max of dynamic, config, or explicit 80px)
+                # This ensures we don't pick a tiny threshold for small objects if dist_thresh is generous
+                final_thresh = max(dynamic_thresh, dist_thresh, 80.0)
+                
+                # --- User Requested: Edge Boost ---
+                if frame_size:
+                    W, H = frame_size
+                    edge_margin = 0.06  # 6% of frame
+                    
+                    # Check if OLD lost box was near edge
+                    ob = data['bbox']
+                    near_edge = (ob[0] < W*edge_margin or ob[2] > W*(1-edge_margin) or
+                                 ob[1] < H*edge_margin or ob[3] > H*(1-edge_margin))
+                    
+                    if near_edge:
+                        final_thresh *= 1.5
+                
+                if dist < final_thresh:
                     if dist < min_dist:
                         min_dist = dist
                         best_dist_match_id = old_id
