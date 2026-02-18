@@ -14,6 +14,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from tqdm import tqdm
 from utils.occlusion_handler import OcclusionHandler
+from utils.roi_mapping import ROIManager
+from utils.role_classifier import RoleClassifier
 
 
 # ----------------------------
@@ -140,6 +142,12 @@ def main():
     
     # Store persistent mapping for "New ID" -> "Old ID"
     relink_map = {} 
+    
+    # ROI Manager will be initialized after we know the video frame size
+    roi_manager = None
+    
+    # Role Classifier (Cashier vs Customer)
+    role_classifier = RoleClassifier(cashier_threshold=0.60)
 
     for s_idx, s_path in enumerate(split_files):
         print(f"\nProcessing Part {s_idx+1}/{len(split_files)}...")
@@ -152,6 +160,10 @@ def main():
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         cap.release()
+        
+        # Initialize ROI Manager on first split (now we know the video resolution)
+        if roi_manager is None:
+            roi_manager = ROIManager(frame_size=(width, height))
         
         # Reset relink map per file
         relink_map = {} 
@@ -238,6 +250,16 @@ def main():
                         # Calculate center for post-processing merge
                         cx = (box[0] + box[2]) / 2
                         cy = (box[1] + box[3]) / 2
+                        
+                        # ROI Zone Detection (with type for role classification)
+                        if roi_manager.has_zones:
+                            zone_name, zone_type = roi_manager.get_zone_with_type(cx, cy)
+                        else:
+                            zone_name, zone_type = "N/A", None
+                        
+                        # Update Role Classifier (only for persons, class 0)
+                        if c == 0:
+                            role_classifier.update(logical_tid, zone_name, zone_type)
 
                         if key not in summary_data:
                             summary_data[key] = {
@@ -248,17 +270,26 @@ def main():
                                 "End_Time_Sec": round(global_now, 2),
                                 "Frame_Count": 1,
                                 "Start_Center": (cx, cy),
-                                "End_Center": (cx, cy)
+                                "End_Center": (cx, cy),
+                                "Zone": zone_name,
+                                "Role": role_classifier.get_role(logical_tid) if c == 0 else "N/A"
                             }
                         else:
                             summary_data[key]["End_Time_Sec"] = round(global_now, 2)
                             summary_data[key]["Frame_Count"] += 1
                             summary_data[key]["End_Center"] = (cx, cy)
+                            summary_data[key]["Zone"] = zone_name
+                            if c == 0:
+                                summary_data[key]["Role"] = role_classifier.get_role(logical_tid)
 
                 # --- CUSTOM ANNOTATION (Visualizing the LOGICAL ID) ---
                 # We draw on the original frame using the re-linked IDs we just calculated.
                 # r.orig_img is the original numpy array (BGR). We copy it to avoid mutating source if buffered.
                 annotated_frame = r.orig_img.copy()
+                
+                # Draw ROI zones first (so they appear behind the bounding boxes)
+                if roi_manager.has_zones:
+                    roi_manager.draw_zones(annotated_frame)
 
                 for tid, tdata in curr_frame_tracks.items():
                     bx = tdata['bbox']
@@ -267,21 +298,28 @@ def main():
                     # Convert float box to int
                     x1, y1, x2, y2 = int(bx[0]), int(bx[1]), int(bx[2]), int(bx[3])
                     
-                    # Color setup (person=Green, car=Blue, others=White)
-                    color = (0, 255, 0) if cls_id == 0 else (255, 0, 0)
-                    if cls_id not in [0, 2]: color = (255, 255, 255)
+                    # --- Role-based coloring for persons ---
+                    if cls_id == 0:  # Person
+                        role = role_classifier.get_role(tid)
+                        if role == "Cashier":
+                            color = (255, 255, 0)   # Cyan
+                            label = f"ID: {tid} (Cashier)"
+                        else:
+                            color = (0, 255, 255)   # Yellow
+                            label = f"ID: {tid} (Customer)"
+                    elif cls_id == 2:  # Car
+                        color = (255, 0, 0)
+                        label = f"ID: {tid} (Car)"
+                    else:
+                        color = (255, 255, 255)
+                        label = f"ID: {tid}"
 
                     # Draw BBox
                     cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
                     
-                    # Draw Label: "ID: <logical_id>"
-                    label = f"ID: {tid}"
-                    if cls_id == 0: label += " (Person)"
-                    elif cls_id == 2: label += " (Car)"
-                    
                     t_size = cv2.getTextSize(label, 0, 0.6, 2)[0]
                     cv2.rectangle(annotated_frame, (x1, y1 - t_size[1] - 3), (x1 + t_size[0], y1), color, -1)
-                    cv2.putText(annotated_frame, label, (x1, y1 - 2), 0, 0.6, (255, 255, 255), 2, lineType=cv2.LINE_AA)
+                    cv2.putText(annotated_frame, label, (x1, y1 - 2), 0, 0.6, (0, 0, 0), 2, lineType=cv2.LINE_AA)
 
                 # Write the CUSTOM frame, not r.plot()
                 out_writer.write(annotated_frame)
@@ -338,16 +376,18 @@ def main():
                 "Split": row["Split"],
                 "ID": row["ID"],
                 "Class": row["Class"],
+                "Role": row.get("Role", "N/A"),
                 "Start_Time_Sec": row["Start_Time_Sec"],
                 "End_Time_Sec": row["End_Time_Sec"],
-                "Frame_Count": row["Frame_Count"]
+                "Frame_Count": row["Frame_Count"],
+                "Zone": row.get("Zone", "N/A")
             }
             final_report_rows.append(csv_row)
 
     with open(summary_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["Split", "ID", "Class", "Start_Time_Sec", "End_Time_Sec", "Frame_Count"]
+            fieldnames=["Split", "ID", "Class", "Role", "Start_Time_Sec", "End_Time_Sec", "Frame_Count", "Zone"]
         )
         writer.writeheader()
         writer.writerows(final_report_rows)

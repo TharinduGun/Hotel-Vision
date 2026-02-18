@@ -1,0 +1,39 @@
+{
+  "source_image": "refernce_image.png",
+  "image_size": [
+    1920,
+    1080
+  ],
+  "zones": [
+    {
+      "name": "Cashier 1",
+      "type": "cashier",
+      "roi": [
+        0,
+        381,
+        442,
+        459
+      ]
+    },
+    {
+      "name": "Cashier 2",
+      "type": "cashier",
+      "roi": [
+        657,
+        121,
+        429,
+        361
+      ]
+    },
+    {
+      "name": "Money Exchange Counter",
+      "type": "money_exchange",
+      "roi": [
+        446,
+        451,
+        346,
+        248
+      ]
+    }
+  ]
+}
