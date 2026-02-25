@@ -8,7 +8,8 @@ Design:
   - This is the ONLY file that changes when you swap CSV → DB / RTSP stream
 
 CSV columns expected (current):
-  Split, ID, Class, Role, Start_Time_Sec, End_Time_Sec, Frame_Count, Zone
+  Split, ID, Class, Role, Start_Time_Sec, End_Time_Sec, Frame_Count, Zone,
+  Camera_ID, Session_Start, Bbox_Start, Bbox_End, Dwell_Category
 """
 
 from __future__ import annotations
@@ -35,6 +36,10 @@ COLUMN_MAP: dict[str, list[str]] = {
     "frameCount":   ["frame_count", "frame_cnt", "frames", "count"],
     "zone":         ["zone", "roi", "region", "area"],
     "cameraId":     ["camera_id", "cameraid", "cam_id", "camera"],
+    "sessionStart": ["session_start", "session_ts", "session_datetime"],
+    "bboxStart":    ["bbox_start", "start_bbox", "box_start"],
+    "bboxEnd":      ["bbox_end", "end_bbox", "box_end"],
+    "dwellCategory":["dwell_category", "dwell_cat", "dwell_class"],
 }
 
 # Default values when a column is missing entirely
@@ -48,6 +53,10 @@ DEFAULTS: dict[str, object] = {
     "frameCount": 0,
     "zone": "Unknown",
     "cameraId": "CAM-01",
+    "sessionStart": None,
+    "bboxStart": None,
+    "bboxEnd": None,
+    "dwellCategory": "NORMAL",
 }
 
 
@@ -147,6 +156,12 @@ class CSVDataSource:
 
                 for row_idx, row in enumerate(reader):
                     try:
+                        # Read new optional columns (graceful if missing)
+                        session_start_raw = row.get(col_map.get("sessionStart") or "", "").strip() or None
+                        bbox_start_raw = row.get(col_map.get("bboxStart") or "", "").strip() or None
+                        bbox_end_raw = row.get(col_map.get("bboxEnd") or "", "").strip() or None
+                        dwell_cat_raw = row.get(col_map.get("dwellCategory") or "", "").strip() or DEFAULTS["dwellCategory"]
+
                         event = TrackingEvent(
                             split=_safe_int(
                                 row.get(col_map["split"] or "", ""),
@@ -172,6 +187,10 @@ class CSVDataSource:
                             ),
                             zone=row.get(col_map["zone"] or "", DEFAULTS["zone"]).strip(),
                             cameraId=row.get(col_map["cameraId"] or "", DEFAULTS["cameraId"]).strip(),
+                            sessionStart=session_start_raw,
+                            bboxStart=bbox_start_raw,
+                            bboxEnd=bbox_end_raw,
+                            dwellCategory=dwell_cat_raw,
                         )
                         events.append(event)
                     except Exception as e:

@@ -26,6 +26,11 @@ class TrackingEvent(BaseModel):
     frameCount: int
     zone: str = "Unknown"
     cameraId: str = "CAM-01"    # default when CSV lacks it
+    # New columns for KPI alignment (optional for backward compat)
+    sessionStart: Optional[str] = None      # ISO datetime of session start
+    bboxStart: Optional[str] = None         # "x1,y1,x2,y2"
+    bboxEnd: Optional[str] = None           # "x1,y1,x2,y2"
+    dwellCategory: str = "NORMAL"           # SHORT | NORMAL | LONG | EXCESSIVE
 
 
 # ── Dashboard Summary ──────────────────────────────────────────────────

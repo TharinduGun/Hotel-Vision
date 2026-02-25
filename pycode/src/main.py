@@ -18,6 +18,18 @@ from utils.roi_mapping import ROIManager
 from utils.role_classifier import RoleClassifier
 
 
+def _dwell_category(duration_sec: float) -> str:
+    """Classify dwell duration into a category for KPI alignment."""
+    if duration_sec < 10:
+        return "SHORT"
+    elif duration_sec < 45:
+        return "NORMAL"
+    elif duration_sec < 120:
+        return "LONG"
+    else:
+        return "EXCESSIVE"
+
+
 # ----------------------------
 # CONFIG (edit these)
 # ----------------------------
@@ -108,10 +120,15 @@ def main():
         raise FileNotFoundError(f"Video not found: {VIDEO_PATH}")
 
     # --- 1. DYNAMIC SESSION SETUP ---
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_start_dt = datetime.now()
+    timestamp = session_start_dt.strftime("%Y%m%d_%H%M%S")
+    session_start_iso = session_start_dt.isoformat()
     # Output to ../../output/logs relative to this script
     base_output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "output", "logs"))
     session_dir = os.path.join(base_output_dir, f"session_{timestamp}")
+
+    # Default camera ID — single camera for now, multi-camera will pass per-stream
+    CAMERA_ID = "CAM-01"
 
     raw_dir = os.path.join(session_dir, "raw_splits")
     processed_dir = os.path.join(session_dir, "processed_splits")
@@ -272,13 +289,18 @@ def main():
                                 "Start_Center": (cx, cy),
                                 "End_Center": (cx, cy),
                                 "Zone": zone_name,
-                                "Role": role_classifier.get_role(logical_tid) if c == 0 else "N/A"
+                                "Role": role_classifier.get_role(logical_tid) if c == 0 else "N/A",
+                                "Camera_ID": CAMERA_ID,
+                                "Session_Start": session_start_iso,
+                                "Bbox_Start": f"{int(box[0])},{int(box[1])},{int(box[2])},{int(box[3])}",
+                                "Bbox_End": f"{int(box[0])},{int(box[1])},{int(box[2])},{int(box[3])}",
                             }
                         else:
                             summary_data[key]["End_Time_Sec"] = round(global_now, 2)
                             summary_data[key]["Frame_Count"] += 1
                             summary_data[key]["End_Center"] = (cx, cy)
                             summary_data[key]["Zone"] = zone_name
+                            summary_data[key]["Bbox_End"] = f"{int(box[0])},{int(box[1])},{int(box[2])},{int(box[3])}"
                             if c == 0:
                                 summary_data[key]["Role"] = role_classifier.get_role(logical_tid)
 
@@ -371,6 +393,8 @@ def main():
     for row in refined_events:
         # Filter short events
         if row["Frame_Count"] >= MIN_PERSISTENCE or row["Class"] == "car":
+            # Compute dwell category from duration
+            dwell_sec = row["End_Time_Sec"] - row["Start_Time_Sec"]
             # Remove internal keys not for CSV (Start/End Center)
             csv_row = {
                 "Split": row["Split"],
@@ -380,15 +404,22 @@ def main():
                 "Start_Time_Sec": row["Start_Time_Sec"],
                 "End_Time_Sec": row["End_Time_Sec"],
                 "Frame_Count": row["Frame_Count"],
-                "Zone": row.get("Zone", "N/A")
+                "Zone": row.get("Zone", "N/A"),
+                "Camera_ID": row.get("Camera_ID", "CAM-01"),
+                "Session_Start": row.get("Session_Start", session_start_iso),
+                "Bbox_Start": row.get("Bbox_Start", ""),
+                "Bbox_End": row.get("Bbox_End", ""),
+                "Dwell_Category": _dwell_category(dwell_sec),
             }
             final_report_rows.append(csv_row)
 
+    CSV_FIELDS = [
+        "Split", "ID", "Class", "Role",
+        "Start_Time_Sec", "End_Time_Sec", "Frame_Count", "Zone",
+        "Camera_ID", "Session_Start", "Bbox_Start", "Bbox_End", "Dwell_Category",
+    ]
     with open(summary_csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=["Split", "ID", "Class", "Role", "Start_Time_Sec", "End_Time_Sec", "Frame_Count", "Zone"]
-        )
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         writer.writeheader()
         writer.writerows(final_report_rows)
 

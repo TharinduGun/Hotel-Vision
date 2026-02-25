@@ -52,6 +52,20 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _session_time(event: TrackingEvent) -> datetime:
+    """Get the real datetime for an event based on sessionStart + offset."""
+    if event.sessionStart:
+        try:
+            base = datetime.fromisoformat(event.sessionStart)
+            if base.tzinfo is None:
+                base = base.replace(tzinfo=timezone.utc)
+            return base + timedelta(seconds=event.startTimeSec)
+        except (ValueError, TypeError):
+            pass
+    # Fallback: offset from now
+    return _now() - timedelta(seconds=max(0, 60 - event.startTimeSec))
+
+
 def _event_id(event: TrackingEvent) -> str:
     """Deterministic hash-based ID for an event."""
     raw = f"{event.cameraId}-{event.trackId}-{event.startTimeSec}"
@@ -73,15 +87,28 @@ def build_summary(events: list[TrackingEvent]) -> DashboardSummary:
     alerts = _derive_alerts(events)
     incidents_today = len(alerts)
 
+    # Compute security score from dwell categories
+    # Start at 100, penalize for LONG (-3) and EXCESSIVE (-8) dwells
+    score = 100
+    for e in people:
+        if e.dwellCategory == "LONG":
+            score -= 3
+        elif e.dwellCategory == "EXCESSIVE":
+            score -= 8
+    score = max(0, min(100, score))  # clamp to 0-100
+
+    # Compute uptime from cameras
+    uptime = round((cameras_online / cameras_total) * 100, 1) if cameras_total > 0 else 0.0
+
     return DashboardSummary(
         ts=_now(),
         cards={
             "camerasOnline": KPICard(value=cameras_online, total=cameras_total),
             "activeAlerts": KPICard(value=incidents_today, deltaPct=-12.0),
             "staffOnSite": KPICard(value=len(workers)),
-            "securityScore": KPICard(value=94, deltaPct=3.0),
+            "securityScore": KPICard(value=score, deltaPct=3.0),
             "incidentsToday": KPICard(value=incidents_today),
-            "uptime": KPICard(value=99.9),
+            "uptime": KPICard(value=uptime),
         },
     )
 
@@ -90,10 +117,10 @@ def build_summary(events: list[TrackingEvent]) -> DashboardSummary:
 
 def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
     """
-    Derive alerts from tracking events using simple rules:
-    - Person in a cashier zone with high dwell time → UNUSUAL_MOTION
-    - Customer in staff-only zones → ZONE_INTRUSION
-    - Very long presence → LOITERING
+    Derive alerts from tracking events using dwellCategory + zone rules:
+    - Customer in cashier zone → ZONE_INTRUSION (HIGH)
+    - LONG dwell → UNUSUAL_MOTION (MEDIUM)
+    - EXCESSIVE dwell → LOITERING (HIGH)
     """
     alerts: list[Alert] = []
 
@@ -102,8 +129,9 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
             continue
 
         dwell_sec = event.endTimeSec - event.startTimeSec
+        event_ts = _session_time(event)
 
-        # Rule 1: customer in cashier zone
+        # Rule 1: customer in cashier zone (any dwell)
         if event.role.lower() == "customer" and "cashier" in event.zone.lower():
             alerts.append(Alert(
                 id=_event_id(event),
@@ -113,12 +141,26 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
                 description=f"Customer detected in {event.zone} for {dwell_sec:.1f}s.",
                 cameraId=event.cameraId,
                 zone=event.zone,
-                ts=_now() - timedelta(seconds=max(0, 60 - dwell_sec)),
+                ts=event_ts,
                 evidence=AlertEvidence(),
             ))
 
-        # Rule 2: long dwell (> 45 sec) anywhere
-        elif dwell_sec > 45:
+        # Rule 2: EXCESSIVE dwell → LOITERING
+        elif event.dwellCategory == "EXCESSIVE":
+            alerts.append(Alert(
+                id=_event_id(event),
+                type="LOITERING",
+                severity="HIGH",
+                title="Loitering Detected",
+                description=f"Track #{event.trackId} loitering in {event.zone} for {dwell_sec:.1f}s ({event.frameCount} frames).",
+                cameraId=event.cameraId,
+                zone=event.zone,
+                ts=event_ts,
+                evidence=AlertEvidence(),
+            ))
+
+        # Rule 3: LONG dwell → UNUSUAL_MOTION
+        elif event.dwellCategory == "LONG":
             alerts.append(Alert(
                 id=_event_id(event),
                 type="UNUSUAL_MOTION",
@@ -127,21 +169,7 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
                 description=f"{event.role} (Track #{event.trackId}) stayed in {event.zone} for {dwell_sec:.1f}s.",
                 cameraId=event.cameraId,
                 zone=event.zone,
-                ts=_now() - timedelta(seconds=max(0, 60 - dwell_sec)),
-                evidence=AlertEvidence(),
-            ))
-
-        # Rule 3: loitering (> 55 sec, many frames)
-        elif dwell_sec > 55 and event.frameCount > 1000:
-            alerts.append(Alert(
-                id=_event_id(event),
-                type="LOITERING",
-                severity="LOW",
-                title="Loitering Detected",
-                description=f"Track #{event.trackId} loitering in {event.zone} for {dwell_sec:.1f}s ({event.frameCount} frames).",
-                cameraId=event.cameraId,
-                zone=event.zone,
-                ts=_now() - timedelta(seconds=30),
+                ts=event_ts,
                 evidence=AlertEvidence(),
             ))
 
@@ -193,14 +221,17 @@ def build_employees(
     for idx, w in enumerate(workers):
         name = _EMPLOYEE_NAMES[idx % len(_EMPLOYEE_NAMES)]
         location = _LOCATION_MAP.get(w.zone, w.zone)
-        emp_status = "ON_DUTY" if w.endTimeSec > 30 else "BREAK"
+        emp_status = "ON_DUTY" if w.dwellCategory in ("NORMAL", "LONG", "EXCESSIVE") else "BREAK"
+
+        # Use real session time if available
+        last_seen_ts = _session_time(w)
 
         emp = Employee(
             id=f"E{w.trackId:03d}",
             name=name,
             role=_ROLE_DISPLAY.get(w.role.lower(), w.role),
             status=emp_status,
-            lastSeen=_now() - timedelta(seconds=max(0, 60 - w.endTimeSec)),
+            lastSeen=last_seen_ts,
             location=location,
             zone=w.zone,
         )
