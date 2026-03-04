@@ -1,0 +1,146 @@
+import { Alert, Camera, Employee } from "@/types";
+import cameraLobby from "@/assets/camera-lobby.jpg";
+import cameraParking from "@/assets/camera-parking.jpg";
+import cameraHallway from "@/assets/camera-hallway.jpg";
+import cameraService from "@/assets/camera-service.jpg";
+
+export const mockAlerts: Alert[] = [
+  {
+    id: "ALT-001",
+    type: "security",
+    title: "Unauthorized Access Attempt",
+    description: "Someone attempted to access restricted area...",
+    location: "Floor 2 - Server Room",
+    timestamp: "2 min ago",
+    severity: "high",
+    isNew: true,
+  },
+  {
+    id: "ALT-002",
+    type: "motion" as const,
+    title: "Unusual Motion Detected",
+    description: "Extended loitering detected in parking lot section B for over 15 minutes.",
+    location: "Parking Lot - Zone B",
+    timestamp: "8 min ago",
+    severity: "medium" as const,
+    isNew: true,
+  },
+  {
+    id: "ALT-003",
+    type: "anomaly" as const,
+    title: "Camera Feed Disruption",
+    description: "Brief signal interruption on camera CAM-12. Feed restored automatically.",
+    location: "Pool Area",
+    timestamp: "23 min ago",
+    severity: "low" as const,
+    isNew: false,
+  },
+  {
+    id: "ALT-004",
+    type: "unauthorized" as const,
+    title: "Staff Badge Not Detected",
+    description: "Employee entered kitchen area without scanning badge at entry point.",
+    location: "Kitchen - Main Entry",
+    timestamp: "45 min ago",
+    severity: "medium" as const,
+    isNew: false,
+  },
+  {
+    id: "ALT-005",
+    type: "security" as const,
+    title: "Emergency Exit Opened",
+    description: "Emergency exit door was opened without alarm authorization.",
+    location: "Floor 1 - East Wing",
+    timestamp: "1 hr ago",
+    severity: "high" as const,
+    isNew: false,
+  },
+];
+
+export const mockCameras: Camera[] = [
+  {
+    id: "CAM-01",
+    name: "Main Lobby",
+    location: "Ground Floor - Entrance",
+    image: cameraLobby,
+    isLive: true,
+    hasAlert: false,
+  },
+   {
+    id: "CAM-02",
+    name: "Parking Lot A",
+    location: "Outdoor - North Side",
+    image: cameraParking,
+    isLive: true,
+    hasAlert: true,
+  },
+  {
+    id: "CAM-03",
+    name: "Hallway Floor 3",
+    location: "Floor 3 - East Wing",
+    image: cameraHallway,
+    isLive: true,
+    hasAlert: false,
+  },
+  {
+    id: "CAM-04",
+    name: "Service Entrance",
+    location: "Back - Loading Bay",
+    image: cameraService,
+    isLive: true,
+    hasAlert: false,
+  },
+];
+
+export const mockEmployees: Employee[] = [
+  {
+    id: "E001",
+    name: "Sarah Johnson",
+    role: "Front Desk Manager",
+    avatar: "https://images.unsplash.com/photo-1494790108755-2616b612b786?w=100&h=100&fit=crop&crop=face",
+    location: "Main Lobby",
+    status: "active",
+    lastSeen: "Now",
+    zone: "Zone A",
+  },
+  {
+    id: "E002",
+    name: "Michael Chen",
+    role: "Security Officer",
+    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face",
+    location: "Floor 3",
+    status: "active" as const,
+    lastSeen: "2m ago",
+    zone: "Zone C",
+  },
+  {
+    id: "E003",
+    name: "Emily Rodriguez",
+    role: "Housekeeping Lead",
+    avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face",
+    location: "Break Room",
+    status: "break" as const,
+    lastSeen: "15m ago",
+    zone: "Zone B",
+  },
+  {
+    id: "E004",
+    name: "James Wilson",
+    role: "Maintenance Tech",
+    avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face",
+    location: "Basement",
+    status: "active" as const,
+    lastSeen: "5m ago",
+    zone: "Zone D",
+  },
+  {
+    id: "E005",
+    name: "Lisa Park",
+    role: "Night Auditor",
+    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face",
+    location: "—",
+    status: "offline" as const,
+    lastSeen: "3h ago",
+    zone: "—",
+  },
+];
