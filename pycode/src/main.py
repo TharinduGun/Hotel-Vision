@@ -16,6 +16,8 @@ from tqdm import tqdm
 from utils.occlusion_handler import OcclusionHandler
 from utils.roi_mapping import ROIManager
 from utils.role_classifier import RoleClassifier
+from utils.cash_detector import CashDetector
+from utils.cash_tracker import CashTracker, CashEventType
 
 
 def _dwell_category(duration_sec: float) -> str:
@@ -35,9 +37,13 @@ def _dwell_category(duration_sec: float) -> str:
 # ----------------------------
 VIDEO_PATH = os.path.abspath(r"D:\Work\jwinfotech\Videoanalystics\video-analytics\resources\videos\Indoor_Original_VideoStream.mp4")   # <-- put your CCTV video here
 MODEL_PATH = "yolov8m.pt"                             # use yolov8n.pt if CPU is slow
-RUN_SECONDS = 60                                      # <-- only process first 30 sec
+CASH_MODEL_PATH = os.path.abspath(os.path.join(
+    os.path.dirname(__file__), "..", "models", "cash_detector", "weights", "best.pt"
+))  # Trained cash detection model
+RUN_SECONDS = 1800                                      # <-- only process first 30 sec
 CLASSES = [0, 2]                                      # 0=person, 2=car
 MIN_PERSISTENCE = 60                                  # in frames (same as your notebook)
+ENABLE_CASH_DETECTION = True                          # Toggle cash detection on/off
 
 
 def flush_memory():
@@ -165,6 +171,26 @@ def main():
     
     # Role Classifier (Cashier vs Customer)
     role_classifier = RoleClassifier(cashier_threshold=0.60)
+    
+    # Cash Detection & Tracking (Phase: Cash Handling)
+    cash_detector = None
+    cash_tracker = None
+    if ENABLE_CASH_DETECTION:
+        if os.path.exists(CASH_MODEL_PATH):
+            cash_detector = CashDetector(
+                model_path=CASH_MODEL_PATH,
+                conf_threshold=0.35,
+                device=device,
+            )
+            cash_tracker = CashTracker(
+                pickup_debounce=5,
+                deposit_debounce=20,
+                zone_alert_cooldown=30,
+            )
+            print("[Main] Cash detection ENABLED")
+        else:
+            print(f"[Main] Cash model not found at {CASH_MODEL_PATH} — cash detection DISABLED")
+            print("[Main] Run pycode/scripts/train_cash_detector.py to train the model.")
 
     for s_idx, s_path in enumerate(split_files):
         print(f"\nProcessing Part {s_idx+1}/{len(split_files)}...")
@@ -304,6 +330,28 @@ def main():
                             if c == 0:
                                 summary_data[key]["Role"] = role_classifier.get_role(logical_tid)
 
+                # --- CASH DETECTION (runs after person tracking) ---
+                cash_detections = []
+                cash_associations = {"assigned": {}, "unassigned": []}
+                if cash_detector is not None:
+                    cash_detections = cash_detector.detect(
+                        r.orig_img,
+                        person_tracks=curr_frame_tracks,
+                        roi_manager=roi_manager,
+                    )
+                    cash_associations = cash_detector.associate_with_persons(
+                        cash_detections, curr_frame_tracks
+                    )
+                    # Update cash state machine
+                    if cash_tracker is not None:
+                        cash_events = cash_tracker.update(
+                            frame_idx=frame_idx,
+                            current_time=current_time,
+                            person_tracks=curr_frame_tracks,
+                            cash_associations=cash_associations,
+                            roi_manager=roi_manager,
+                        )
+
                 # --- CUSTOM ANNOTATION (Visualizing the LOGICAL ID) ---
                 # We draw on the original frame using the re-linked IDs we just calculated.
                 # r.orig_img is the original numpy array (BGR). We copy it to avoid mutating source if buffered.
@@ -312,6 +360,11 @@ def main():
                 # Draw ROI zones first (so they appear behind the bounding boxes)
                 if roi_manager.has_zones:
                     roi_manager.draw_zones(annotated_frame)
+
+                # Build set of active cash holders for annotation
+                active_cash_holders = set()
+                if cash_tracker is not None:
+                    active_cash_holders = set(cash_tracker.get_active_cash_holders())
 
                 for tid, tdata in curr_frame_tracks.items():
                     bx = tdata['bbox']
@@ -323,12 +376,13 @@ def main():
                     # --- Role-based coloring for persons ---
                     if cls_id == 0:  # Person
                         role = role_classifier.get_role(tid)
+                        cash_label = " 💰" if tid in active_cash_holders else ""
                         if role == "Cashier":
                             color = (255, 255, 0)   # Cyan
-                            label = f"ID: {tid} (Cashier)"
+                            label = f"ID: {tid} (Cashier){cash_label}"
                         else:
                             color = (0, 255, 255)   # Yellow
-                            label = f"ID: {tid} (Customer)"
+                            label = f"ID: {tid} (Customer){cash_label}"
                     elif cls_id == 2:  # Car
                         color = (255, 0, 0)
                         label = f"ID: {tid} (Car)"
@@ -342,6 +396,10 @@ def main():
                     t_size = cv2.getTextSize(label, 0, 0.6, 2)[0]
                     cv2.rectangle(annotated_frame, (x1, y1 - t_size[1] - 3), (x1 + t_size[0], y1), color, -1)
                     cv2.putText(annotated_frame, label, (x1, y1 - 2), 0, 0.6, (0, 0, 0), 2, lineType=cv2.LINE_AA)
+
+                # Draw cash bounding boxes
+                if cash_detector is not None and cash_detections:
+                    cash_detector.draw_detections(annotated_frame, cash_detections, cash_associations)
 
                 # Write the CUSTOM frame, not r.plot()
                 out_writer.write(annotated_frame)
@@ -422,6 +480,42 @@ def main():
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         writer.writeheader()
         writer.writerows(final_report_rows)
+
+    # --- 4b. CASH EVENTS CSV ---
+    if cash_tracker is not None:
+        cash_events_all = cash_tracker.get_all_events()
+        if cash_events_all:
+            cash_csv = os.path.join(session_dir, "cash_events.csv")
+            CASH_CSV_FIELDS = [
+                "Event_Type", "Person_ID", "Timestamp_Sec", "Frame_Idx",
+                "Zone", "Confidence", "Partner_ID", "Bbox_Snapshot",
+                "Camera_ID", "Session_Start",
+            ]
+            with open(cash_csv, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=CASH_CSV_FIELDS)
+                writer.writeheader()
+                for ce in cash_events_all:
+                    writer.writerow({
+                        "Event_Type": ce.event_type.value,
+                        "Person_ID": ce.person_id,
+                        "Timestamp_Sec": round(ce.timestamp, 2),
+                        "Frame_Idx": ce.frame_idx,
+                        "Zone": ce.zone,
+                        "Confidence": round(ce.confidence, 3),
+                        "Partner_ID": ce.partner_id or "",
+                        "Bbox_Snapshot": ce.bbox_snapshot or "",
+                        "Camera_ID": CAMERA_ID,
+                        "Session_Start": session_start_iso,
+                    })
+            print(f"Cash Events CSV: {os.path.basename(cash_csv)} ({len(cash_events_all)} events)")
+        
+        # Print cash summary
+        cash_summary = cash_tracker.get_summary()
+        print(f"\nCash Detection Summary:")
+        print(f"  Total cash events: {cash_summary['total_events']}")
+        for etype, count in cash_summary['events_by_type'].items():
+            if count > 0:
+                print(f"  - {etype}: {count}")
 
     # --- 5. STEP 4: VIDEO MERGE ---
     # REPLACED ffmpeg with cv2 implementation
