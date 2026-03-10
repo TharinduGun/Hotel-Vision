@@ -44,6 +44,7 @@ session_*/
 # Exceptions (Keep the basic output folder structure but ignore content)
 !output/.keep
 
-# Datasets and trained models
+# Datasets (large training data - not tracked in git)
 resources/datasets/
-pycode/models/
+
+# Note: pycode/models/ contains trained weights tracked via Git LFS
