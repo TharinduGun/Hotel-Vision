@@ -4,6 +4,139 @@ All notable changes to the Video Analytics & Surveillance System are documented 
 
 ---
 
+## [0.5.0] — 2026-03-09 — Context-Aware Cash Filtering
+
+### Problem
+
+The cash detection model (v0.4.0) produced too many **false positives** — non-cash objects (monitors, phones, receipts, tags, screen reflections) were being flagged as cash. At the same time, **real cash in hands** was detected only intermittently and not tracked persistently. Two specific issues observed:
+
+1. **Static objects on counters** (e.g., monitors, screens) matched the "Cash" pattern because they were rectangular and located inside cashier/money-exchange zones.
+2. **Real cash in hands** flickered — the model detected it for a few frames, lost it, detected again — and the tracker kept resetting the state due to short debounce windows.
+
+### What Changed
+
+#### Cash Detector — `pycode/utils/cash_detector.py`
+
+Rewrote the `detect()` method with a **two-stage post-detection filter** pipeline:
+
+**Stage 1 — Geometric Sanity Checks** (applied to all raw YOLO detections):
+
+| Filter | Threshold | What It Rejects |
+|--------|-----------|-----------------|
+| Min area | 400 px² | Tiny noise blobs (< ~20×20 px) |
+| Max area ratio | 10% of frame | Impossibly large detections |
+| Aspect ratio | 1.0 – 8.0 | Extremely elongated or oddly proportioned shapes |
+
+**Stage 2 — Context-Aware Validation** (cash must pass at least ONE rule):
+
+| Rule | Logic | What It Catches |
+|------|-------|-----------------|
+| **Near person's hands** | Cash bbox overlaps lower 50% of any person bbox ± 60px horizontal margin | Cash being held, picked up, counted |
+| **On counter zone + near person** | Cash is inside a cashier/money_exchange zone AND a person is within 250px | Cash placed on or picked from a counter |
+| **Between two persons** | Cash is in the gap between two persons within 100px of each other | Cash being exchanged hand-to-hand |
+
+Key design decision: **Rule 2 requires person proximity** (not just zone presence) — this is what eliminates monitors, screens, and static objects on counters.
+
+New methods added:
+
+- `_geometric_filter()` — Stage 1 area/aspect checks
+- `_contextual_filter()` — Stage 2 context rule orchestrator
+- `_check_near_hands()` — Rule 1 implementation
+- `_check_on_counter_zone()` — Rule 2 with person proximity requirement
+- `_check_between_persons()` — Rule 3 exchange detection
+- `_is_near_any_person()` — Euclidean distance helper for Rule 2
+
+The `detect()` method signature changed — it now accepts optional `person_tracks` and `roi_manager` parameters:
+
+```python
+# Before (v0.4.0)
+cash_detections = cash_detector.detect(frame)
+
+# After (v0.5.0)
+cash_detections = cash_detector.detect(frame, person_tracks=curr_frame_tracks, roi_manager=roi_manager)
+```
+
+#### Main Pipeline — `pycode/src/main.py`
+
+| Parameter | v0.4.0 | v0.5.0 | Reason |
+|-----------|--------|--------|--------|
+| `conf_threshold` | 0.25 | **0.35** | Balance: permissive detection + strict context filters |
+| `pickup_debounce` | 3 frames | **5 frames** | ~0.2s at 25fps before confirming cash pickup |
+| `deposit_debounce` | 5 frames | **20 frames** | ~0.8s tolerance for flickery detections |
+
+Updated `detect()` call to pass `person_tracks` and `roi_manager` for context filtering.
+
+#### Tests — `pycode/test/test_cash_detector.py`
+
+Added **10 new unit tests** covering:
+
+- Geometric filter: tiny/huge/square rejection, valid pass
+- Context filter: near hands pass, far from everyone rejected, between persons pass, no persons rejects all, car tracks ignored, hand margin tolerance
+
+### Current Known Issues
+
+- **Cash recall is ~62%** — the model misses some cash instances, especially when partially occluded or small. This is a model quality limitation that can only be improved with more/better training data from actual hotel CCTV footage.
+- **Detection flicker** — the model doesn't consistently detect cash every frame even when visible. Mitigated by the high `deposit_debounce` (20 frames) but not eliminated.
+
+---
+
+## [0.4.0] — 2026-03-05 — Cash Detection Pipeline
+
+### Problem
+
+The system could track people and classify roles (Cashier/Customer), but had **no way to detect cash handling** — the core use case for hotel reception monitoring. Needed to train a model, integrate detection, and build event tracking.
+
+### What Was Built
+
+#### Cash Detection Model — Training
+
+Trained a **YOLOv8m** model on the [Roboflow cash-74hjk v7](https://universe.roboflow.com/atm-cochs/cash-74hjk/dataset/7) dataset:
+
+- **15,371 training images**, 1,013 validation, 860 test
+- **50 epochs** configured, early-stopped at epoch 18 (patience=10, best at epoch 8)
+- **Best mAP50**: 79.1% (val), 84.7% (test) — generalizes well
+- **Cash recall**: 62.1% on test set
+- **Inference speed**: ~7ms/frame (143 FPS on RTX 4060 Ti)
+- Model saved at `pycode/models/cash_detector/weights/best.pt`
+
+#### Cash Detector — `pycode/utils/cash_detector.py` [NEW]
+
+- `CashDetection` class — lightweight data structure for individual detections
+- `CashDetector` class — YOLO wrapper with person-association logic
+  - `detect(frame)` — runs inference, returns list of `CashDetection` objects
+  - `associate_with_persons()` — assigns cash to nearest person via IOU, center-in-bbox, and hand-proximity scoring
+  - `draw_detections()` — annotates frames (green for assigned, red for unassigned)
+
+#### Cash Tracker — `pycode/utils/cash_tracker.py` [NEW]
+
+State machine tracking per-person cash interactions:
+
+- **States**: `NO_CASH` ↔ `HOLDING_CASH`
+- **Events generated**: `CASH_PICKUP`, `CASH_DEPOSIT`, `CASH_HANDOVER`, `CASH_OUTSIDE_ZONE`, `CASH_POCKET`
+- **Debouncing**: configurable frames for pickup/deposit confirmation to prevent flickering
+- **Zone awareness**: safe zones (cashier, cash_register) vs. suspicious locations
+
+#### Main Pipeline Integration — `pycode/src/main.py`
+
+- Added `ENABLE_CASH_DETECTION` toggle and `CASH_MODEL_PATH` config
+- Cash detection runs after person tracking on each frame
+- Cash events exported to separate `cash_events.csv` with session metadata
+- Cash holders annotated with 💰 emoji in output video
+- Cash summary printed at session end
+
+#### Backend Extensions
+
+- `backend/models.py` — Added `CashEvent` Pydantic model
+- `backend/services/aggregations.py` — Cash events contribute to alerts and security score
+- `backend/services/csv_adapter.py` — Reads `cash_events.csv` alongside tracking CSV
+
+#### Tests [NEW]
+
+- `pycode/test/test_cash_detector.py` — 6 association logic tests
+- `pycode/test/test_cash_tracker.py` — state machine transition tests
+
+---
+
 ## [0.3.0] — 2026-02-25 — CSV-to-KPI Alignment
 
 ### Problem

@@ -31,6 +31,10 @@ class TrackingEvent(BaseModel):
     bboxStart: Optional[str] = None         # "x1,y1,x2,y2"
     bboxEnd: Optional[str] = None           # "x1,y1,x2,y2"
     dwellCategory: str = "NORMAL"           # SHORT | NORMAL | LONG | EXCESSIVE
+    # Cash handling fields (Phase: Cash Handling & Reception Monitoring)
+    cashEventType: Optional[str] = None      # CASH_PICKUP | CASH_DEPOSIT | CASH_HANDOVER | None
+    cashConfidence: Optional[float] = None   # Detection confidence for cash
+    cashPartnerId: Optional[int] = None      # Partner person ID for handover events
 
 
 # ── Dashboard Summary ──────────────────────────────────────────────────
@@ -71,7 +75,9 @@ class AlertEvidence(BaseModel):
 
 class Alert(BaseModel):
     id: str
-    type: str                   # "UNUSUAL_MOTION" | "ZONE_INTRUSION" | ...
+    type: str                   # "UNUSUAL_MOTION" | "ZONE_INTRUSION" | "LOITERING" |
+                                # "CASH_OUTSIDE_ZONE" | "CASH_HANDOVER_SUSPICIOUS" |
+                                # "UNREGISTERED_CASH_HANDLING" | "CASH_POCKET"
     severity: str               # "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
     title: str
     description: str

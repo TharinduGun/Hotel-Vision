@@ -43,3 +43,7 @@ session_*/
 
 # Exceptions (Keep the basic output folder structure but ignore content)
 !output/.keep
+
+# Datasets and trained models
+resources/datasets/
+pycode/models/

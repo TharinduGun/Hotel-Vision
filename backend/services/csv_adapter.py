@@ -40,6 +40,10 @@ COLUMN_MAP: dict[str, list[str]] = {
     "bboxStart":    ["bbox_start", "start_bbox", "box_start"],
     "bboxEnd":      ["bbox_end", "end_bbox", "box_end"],
     "dwellCategory":["dwell_category", "dwell_cat", "dwell_class"],
+    # Cash handling fields
+    "cashEventType": ["cash_event_type", "cash_event", "cash_type"],
+    "cashConfidence": ["cash_confidence", "cash_conf"],
+    "cashPartnerId": ["cash_partner_id", "partner_id", "cash_partner"],
 }
 
 # Default values when a column is missing entirely
@@ -57,6 +61,10 @@ DEFAULTS: dict[str, object] = {
     "bboxStart": None,
     "bboxEnd": None,
     "dwellCategory": "NORMAL",
+    # Cash handling defaults
+    "cashEventType": None,
+    "cashConfidence": None,
+    "cashPartnerId": None,
 }
 
 
@@ -191,6 +199,14 @@ class CSVDataSource:
                             bboxStart=bbox_start_raw,
                             bboxEnd=bbox_end_raw,
                             dwellCategory=dwell_cat_raw,
+                            # Cash handling fields (graceful if missing)
+                            cashEventType=row.get(col_map.get("cashEventType") or "", "").strip() or None,
+                            cashConfidence=_safe_float(
+                                row.get(col_map.get("cashConfidence") or "", ""), None
+                            ) if row.get(col_map.get("cashConfidence") or "", "").strip() else None,
+                            cashPartnerId=_safe_int(
+                                row.get(col_map.get("cashPartnerId") or "", ""), None
+                            ) if row.get(col_map.get("cashPartnerId") or "", "").strip() else None,
                         )
                         events.append(event)
                     except Exception as e:

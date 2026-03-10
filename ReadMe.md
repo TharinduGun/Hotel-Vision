@@ -10,11 +10,14 @@ A complete pipeline ported from Google Colab to local Windows execution.
 
 - **Function**: Processes CCTV footage to track objects (People, Cars) using YOLOv8.
 - **Features**:
-  - Trims video to a specified duration (e.g., 30s) using OpenCV.
+  - Trims video to a specified duration using OpenCV.
   - Detects and tracks objects with high persistence.
   - **Auto-Recover**: Handles temporary obstructions and re-links lost objects.
   - **Event Merge**: Post-processes data to fuse fragmented events into cohesive timelines.
-  - **Output**: Results are saved to `output/logs/session_YYYYMMDD_HHMMSS/`.
+  - **Role Classification**: Classifies tracked persons as Cashier or Customer based on zone occupancy.
+  - **Cash Detection**: Detects banknotes/cash in frames and associates them with persons.
+  - **Cash Event Tracking**: State machine tracking for cash pickups, deposits, handovers, and suspicious pocketing.
+  - **Output**: Results saved to `output/logs/session_YYYYMMDD_HHMMSS/` (tracking CSV, cash events CSV, annotated video).
 
 ## 🧠 Development Phases & Logic
 
@@ -52,6 +55,60 @@ Since raw YOLO tracking often fails in real-world CCTV scenarios (occlusions, ex
       - **Merge**: If Class matches, Gap < 5.0s, and Velocity < 1000px/s (plausible movement).
       - **Reject**: If events time-overlap significantly (ensures distinct people remain distinct).
 - **Result**: A clean CSV report where a person walking, disappearing for 4s, and reappearing is counted as **1 Unique Event** instead of 2.
+
+### Cash Detection & Monitoring
+
+**Goal**: Detect cash handling in hotel reception / retail CCTV footage.
+
+The cash detection system is a **separate YOLOv8 model** trained specifically to detect banknotes, combined with a context-aware filtering layer and a state-machine event tracker.
+
+#### Model
+
+- **Architecture**: YOLOv8m fine-tuned on [Roboflow cash-74hjk v7](https://universe.roboflow.com/atm-cochs/cash-74hjk/dataset/7)
+- **Dataset**: 15,371 training / 1,013 validation / 860 test images
+- **Performance**: mAP50 = 84.7% (test), Cash recall = 62.1%, ~7ms per frame (143 FPS on RTX 4060 Ti)
+- **Model file**: `pycode/models/cash_detector/weights/best.pt`
+
+#### Cash Detector (`pycode/utils/cash_detector.py`)
+
+Wraps the YOLO cash model with a **two-stage post-detection filter**:
+
+1. **Geometric Sanity** — rejects detections that are too small (< 400px²), too large (> 10% of frame), or wrong aspect ratio (< 1.0 or > 8.0). Eliminates noise blobs and impossible shapes.
+
+2. **Context-Aware Validation** — cash must appear in a valid real-world context. A detection passes if ANY of these rules match:
+
+   | Rule | Condition | Example |
+   |------|-----------|--------|
+   | **Near person's hands** | Cash overlaps lower 50% of a person bbox ± 60px | Customer holding cash |
+   | **On counter + near person** | Cash is in a cashier/money_exchange zone AND a person is within 250px | Cash placed on counter |
+   | **Between two persons** | Cash is in the gap between two nearby persons | Cash being exchanged |
+
+   Detections that fail all 3 rules are rejected as false positives. This prevents monitors, phones, receipts, and other rectangular objects from being flagged.
+
+#### Cash Tracker (`pycode/utils/cash_tracker.py`)
+
+A per-person state machine that tracks cash interactions:
+
+- **States**: `NO_CASH` ↔ `HOLDING_CASH`
+- **Events**: `CASH_PICKUP`, `CASH_DEPOSIT`, `CASH_HANDOVER`, `CASH_OUTSIDE_ZONE`, `CASH_POCKET`
+- **Debouncing**: Cash must be detected for 5 consecutive frames before confirming a pickup; must be absent for 20 frames (~0.8s) before confirming a deposit. This prevents detection flicker from triggering false events.
+- **Zone awareness**: Deposits at safe zones (cashier, cash_register) are normal; cash disappearing elsewhere is flagged as suspicious (`CASH_POCKET`).
+
+#### Configuration
+
+In `main.py`:
+
+```python
+ENABLE_CASH_DETECTION = True   # Toggle on/off
+conf_threshold = 0.35          # YOLO confidence threshold
+pickup_debounce = 5            # Frames before confirming cash pickup
+deposit_debounce = 20          # Frames before confirming cash gone
+```
+
+#### Output
+
+- **Video**: Cash bounding boxes drawn on output video (green = assigned to person, red = unassigned)
+- **CSV**: `cash_events.csv` with columns: Event_Type, Person_ID, Timestamp_Sec, Frame_Idx, Zone, Confidence, Partner_ID, Bbox_Snapshot, Camera_ID, Session_Start
 
 ## 🛠️ Setup & Usage
 
@@ -260,49 +317,67 @@ ws.onmessage = (e) => {
 
 ---
 
-## 📅 Roadmap: Cashier Surveillance Module
+## ⚠️ Known Issues & Limitations
 
-We are currently planning a specialized module for **Retail POS Surveillance**.
-
-**Objective**: Detect anomalies where a POS "Cash Sale" event occurs without the cashier physically interacting with the cash drawer.
-
-**Architecture**:
-
-- **Vision Engine**: Monitors a Region of Interest (ROI) for "Drawer Open" or "Hand in Drawer" events.
-- **POS Listener**: Receives transaction logs from the POS system.
-- **Logic Core**: Correlates Vision events with POS timestamps to flag suspicious behavior.
+| Issue | Impact | Mitigation |
+|-------|--------|------------|
+| **Cash recall ~62%** | Model misses some cash, especially when partially occluded or very small | Increased deposit_debounce (20 frames) keeps tracking through gaps; can improve with more training data |
+| **Detection flicker** | Model doesn't detect cash every frame even when visible in hands | High deposit_debounce (20 frames = ~0.8s) prevents tracker state from resetting during brief gaps |
+| **Counter object FPs** | Static objects (monitors, signs) on counters can resemble cash | Rule 2 requires person within 250px alongside zone match; geometric filters reject wrong shapes |
+| **Dataset imbalance** | Only 145 cash vs 783 person instances in test set | Model trained with class-weighted loss; additional hotel-specific cash data would improve recall |
+| **Single camera** | Pipeline currently processes one camera at a time | `CAMERA_ID` field is embedded in outputs; multi-camera orchestration planned |
 
 ## 📂 Project Structure
 
-```
+```text
 video-analytics/
-├── backend/                        # Dashboard API server
-│   ├── app.py                      # FastAPI entry point
-│   ├── config.py                   # Environment-based settings
-│   ├── models.py                   # Pydantic response schemas
-│   ├── requirements.txt            # Backend Python dependencies
+├── backend/                           # Dashboard API server
+│   ├── app.py                         # FastAPI entry point
+│   ├── config.py                      # Environment-based settings
+│   ├── models.py                      # Pydantic response schemas
+│   ├── requirements.txt               # Backend Python dependencies
 │   ├── api/
-│   │   ├── dashboard.py            # GET /api/v1/dashboard/summary
-│   │   ├── cameras.py              # GET /api/v1/cameras, /snapshots
-│   │   ├── alerts.py               # GET /api/v1/alerts
-│   │   ├── employees.py            # GET /api/v1/employees
-│   │   ├── live.py                 # GET /api/v1/live/state
-│   │   └── ws.py                   # WS  /ws/live
+│   │   ├── dashboard.py               # GET /api/v1/dashboard/summary
+│   │   ├── cameras.py                 # GET /api/v1/cameras, /snapshots
+│   │   ├── alerts.py                  # GET /api/v1/alerts
+│   │   ├── employees.py               # GET /api/v1/employees
+│   │   ├── live.py                    # GET /api/v1/live/state
+│   │   └── ws.py                      # WS  /ws/live
 │   ├── services/
-│   │   ├── csv_adapter.py          # CSV reader (swap for DB later)
-│   │   └── aggregations.py         # KPI/alert/employee derivation
+│   │   ├── csv_adapter.py             # CSV reader (swap for DB later)
+│   │   └── aggregations.py            # KPI/alert/employee derivation
 │   └── storage/
-│       └── media/                  # Static snapshots & evidence
-├── output/                         # ML pipeline output (CSVs, videos)
+│       └── media/                     # Static snapshots & evidence
+├── output/                            # ML pipeline output (CSVs, videos)
 ├── pycode/
+│   ├── config/
+│   │   └── zones.json                 # ROI zone definitions
+│   ├── models/
+│   │   └── cash_detector/             # Trained cash detection model
+│   │       ├── weights/best.pt        # YOLOv8m fine-tuned weights
+│   │       ├── results.csv            # Training metrics
+│   │       └── confusion_matrix.png   # Validation confusion matrix
 │   ├── src/
-│   │   └── main.py                 # ML tracking pipeline
+│   │   └── main.py                    # ML tracking + cash detection pipeline
+│   ├── test/
+│   │   ├── test_cash_detector.py      # Cash detector unit tests (16 tests)
+│   │   └── test_cash_tracker.py       # Cash tracker state machine tests
 │   └── utils/
-│       ├── occlusion_handler.py    # Phase 2: occlusion handling
-│       └── event_merger.py         # Phase 3: event continuity
+│       ├── cash_detector.py           # Cash detection + context-aware filtering
+│       ├── cash_tracker.py            # Cash event state machine
+│       ├── occlusion_handler.py       # Phase 2: occlusion handling
+│       ├── event_merger.py            # Phase 3: event continuity
+│       ├── roi_mapping.py             # ROI zone manager
+│       ├── role_classifier.py         # Cashier/Customer classification
+│       └── tracker/
+│           └── bytetrack_cctv.yaml    # ByteTrack config for CCTV
 ├── resources/
-│   └── videos/                     # Input raw CCTV footage
-└── README.md
+│   ├── videos/                        # Input raw CCTV footage
+│   └── datasets/
+│       └── cash.v7i.yolov8/           # Cash detection training dataset
+├── CHANGELOG.md                       # Version history
+├── performancelog.md                  # Model performance metrics
+└── ReadMe.md                          # This file
 ```
 
 ## 📚 References & Tutorials

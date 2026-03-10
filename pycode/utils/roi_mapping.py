@@ -66,6 +66,7 @@ class ROIManager:
     COLOR_MAP = {
         "cashier": (0, 255, 0),          # Green
         "money_exchange": (0, 165, 255),  # Orange
+        "cash_register": (255, 0, 255),   # Magenta
     }
     DEFAULT_COLOR = (255, 255, 255)
 

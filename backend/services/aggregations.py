@@ -87,14 +87,25 @@ def build_summary(events: list[TrackingEvent]) -> DashboardSummary:
     alerts = _derive_alerts(events)
     incidents_today = len(alerts)
 
-    # Compute security score from dwell categories
-    # Start at 100, penalize for LONG (-3) and EXCESSIVE (-8) dwells
+    # Count cash transactions
+    cash_events = [e for e in events if e.cashEventType is not None]
+    cash_transactions = len(cash_events)
+
+    # Compute security score from dwell categories + cash violations
+    # Start at 100, penalize for LONG (-3), EXCESSIVE (-8), cash violations (-5)
     score = 100
     for e in people:
         if e.dwellCategory == "LONG":
             score -= 3
         elif e.dwellCategory == "EXCESSIVE":
             score -= 8
+
+    # Penalize security score for cash violations
+    cash_violations = [e for e in cash_events if e.cashEventType in (
+        "CASH_OUTSIDE_ZONE", "CASH_POCKET", "CASH_HANDOVER"
+    )]
+    for _ in cash_violations:
+        score -= 5
     score = max(0, min(100, score))  # clamp to 0-100
 
     # Compute uptime from cameras
@@ -109,6 +120,7 @@ def build_summary(events: list[TrackingEvent]) -> DashboardSummary:
             "securityScore": KPICard(value=score, deltaPct=3.0),
             "incidentsToday": KPICard(value=incidents_today),
             "uptime": KPICard(value=uptime),
+            "cashTransactions": KPICard(value=cash_transactions),
         },
     )
 
@@ -172,6 +184,47 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
                 ts=event_ts,
                 evidence=AlertEvidence(),
             ))
+
+        # --- Cash-specific alert rules ---
+        if event.cashEventType:
+            if event.cashEventType == "CASH_OUTSIDE_ZONE":
+                alerts.append(Alert(
+                    id=_event_id(event) + "-CASH",
+                    type="CASH_OUTSIDE_ZONE",
+                    severity="HIGH",
+                    title="Cash Outside Designated Zone",
+                    description=f"Cash detected on {event.role} (Track #{event.trackId}) in {event.zone} — outside register/exchange zones.",
+                    cameraId=event.cameraId,
+                    zone=event.zone,
+                    ts=event_ts,
+                    evidence=AlertEvidence(),
+                ))
+            elif event.cashEventType == "CASH_HANDOVER":
+                partner_info = f" to Track #{event.cashPartnerId}" if event.cashPartnerId else ""
+                sev = "CRITICAL" if event.role.lower() != "cashier" else "MEDIUM"
+                alerts.append(Alert(
+                    id=_event_id(event) + "-CASH",
+                    type="CASH_HANDOVER_SUSPICIOUS",
+                    severity=sev,
+                    title="Cash Handover Detected",
+                    description=f"{event.role} (Track #{event.trackId}) handed cash{partner_info} in {event.zone}.",
+                    cameraId=event.cameraId,
+                    zone=event.zone,
+                    ts=event_ts,
+                    evidence=AlertEvidence(),
+                ))
+            elif event.cashEventType == "CASH_POCKET":
+                alerts.append(Alert(
+                    id=_event_id(event) + "-CASH",
+                    type="CASH_POCKET",
+                    severity="CRITICAL",
+                    title="Possible Cash Pocketing",
+                    description=f"Cash disappeared from {event.role} (Track #{event.trackId}) outside register zone in {event.zone}.",
+                    cameraId=event.cameraId,
+                    zone=event.zone,
+                    ts=event_ts,
+                    evidence=AlertEvidence(),
+                ))
 
     return alerts
 
