@@ -210,7 +210,10 @@ class CashTracker:
                         frame_events.append(event)
                         print(f"  [Cash] {event}")
                 else:
-                    profile.frames_holding = 0
+                    profile.frames_without_cash += 1
+                    # Grace period: allow 2 frames of missing cash before resetting the pickup counter
+                    if profile.frames_without_cash > 2:
+                        profile.frames_holding = 0
 
             elif profile.state == CashState.HOLDING_CASH:
                 if has_cash_now:

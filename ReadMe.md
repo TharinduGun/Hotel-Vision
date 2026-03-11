@@ -56,43 +56,47 @@ Since raw YOLO tracking often fails in real-world CCTV scenarios (occlusions, ex
       - **Reject**: If events time-overlap significantly (ensures distinct people remain distinct).
 - **Result**: A clean CSV report where a person walking, disappearing for 4s, and reappearing is counted as **1 Unique Event** instead of 2.
 
-### Cash Detection & Monitoring
+### Cash Detection & Monitoring (6-Layer Architecture)
 
-**Goal**: Detect cash handling in hotel reception / retail CCTV footage.
+**Goal**: Detect cash handling and fraudulent activities in hotel reception / retail CCTV footage.
 
-The cash detection system is a **separate YOLOv8 model** trained specifically to detect banknotes, combined with a context-aware filtering layer and a state-machine event tracker.
+The system uses a highly robust **6-Layer Architecture** to eliminate false positives in complex transaction zones:
 
-#### Model
+#### Layer 1 & 2: Person Tracking & Role Classification
 
-- **Architecture**: YOLOv8m fine-tuned on [Roboflow cash-74hjk v7](https://universe.roboflow.com/atm-cochs/cash-74hjk/dataset/7)
-- **Dataset**: 15,371 training / 1,013 validation / 860 test images
-- **Performance**: mAP50 = 84.7% (test), Cash recall = 62.1%, ~7ms per frame (143 FPS on RTX 4060 Ti)
-- **Model file**: `pycode/models/cash_detector/weights/best.pt`
+Standard YOLOv8 + ByteTrack pipeline tracking customers and identifying Cashiers based on ROI occupancy.
 
-#### Cash Detector (`pycode/utils/cash_detector.py`)
+#### Layer 3: Hand Detection (`pycode/utils/hand_detector.py`)
 
-Wraps the YOLO cash model with a **two-stage post-detection filter**:
+Uses **YOLOv8-pose** to detect human wrists (keypoints 9 & 10). It constantly measures the pixel distance between cashier hands and customer hands to detect physical interactions.
 
-1. **Geometric Sanity** — rejects detections that are too small (< 400px²), too large (> 10% of frame), or wrong aspect ratio (< 1.0 or > 8.0). Eliminates noise blobs and impossible shapes.
+#### Layer 4: Cash Detection (`pycode/utils/cash_detector.py`)
 
-2. **Context-Aware Validation** — cash must appear in a valid real-world context. A detection passes if ANY of these rules match:
+- **Architecture**: YOLOv8m carefully fine-tuned on the `Hands in transaction.v4i.yolov8` dataset.
+- **Performance**: Fantastic **mAP50 = 0.995** achieved via early stopping at epoch 12.
+- **Model file**: `pycode/models/cash_detector_v2/train_v2/weights/best.pt`
+- Runs parallel to hand tracking, looking specifically for banknotes in transit.
 
-   | Rule | Condition | Example |
-   |------|-----------|--------|
-   | **Near person's hands** | Cash overlaps lower 50% of a person bbox ± 60px | Customer holding cash |
-   | **On counter + near person** | Cash is in a cashier/money_exchange zone AND a person is within 250px | Cash placed on counter |
-   | **Between two persons** | Cash is in the gap between two nearby persons | Cash being exchanged |
+#### Layer 5: Timeline Fusion (`pycode/utils/interaction_analyzer.py`)
 
-   Detections that fail all 3 rules are rejected as false positives. This prevents monitors, phones, receipts, and other rectangular objects from being flagged.
+Fuses all signals from Layers 1-4 into a rolling time window.
 
-#### Cash Tracker (`pycode/utils/cash_tracker.py`)
+- **Rules Engine**: Infers a `CASH_EXCHANGE` event if hands interact closely (< 90px) inside a designated transaction zone for over 1.0 seconds (if cash is seen) or 1.5 seconds (if cash is obscured).
 
-A per-person state machine that tracks cash interactions:
+#### Layer 6: Fraud Rules (`pycode/utils/fraud_detector.py`)
 
-- **States**: `NO_CASH` ↔ `HOLDING_CASH`
-- **Events**: `CASH_PICKUP`, `CASH_DEPOSIT`, `CASH_HANDOVER`, `CASH_OUTSIDE_ZONE`, `CASH_POCKET`
-- **Debouncing**: Cash must be detected for 5 consecutive frames before confirming a pickup; must be absent for 20 frames (~0.8s) before confirming a deposit. This prevents detection flicker from triggering false events.
-- **Zone awareness**: Deposits at safe zones (cashier, cash_register) are normal; cash disappearing elsewhere is flagged as suspicious (`CASH_POCKET`).
+Evaluates the timeline of exchanges and cash appearances for suspicious behavior:
+
+- `UNREGISTERED_CASH`: A cashier conducts an exchange but fails to visit the cash register within 10 seconds.
+- `CASH_POCKETED`: A cashier is seen holding cash and then pocketing it outside the safe bounds of a register zone.
+
+#### Output
+
+- **Video**: Hand keypoints (blue/yellow), interaction lines between hands, and bounding boxes for cash drawn directly on the footage.
+- **CSVs**:
+  - `exchange_events.csv`: Logs all successful inferred or confirmed transactions.
+  - `fraud_alerts.csv`: Logs all specific fraud layer violations.
+  - `cash_events.csv`: Raw cash state machine logs (pickups, deposits).
 
 #### Configuration
 

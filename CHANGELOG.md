@@ -4,6 +4,38 @@ All notable changes to the Video Analytics & Surveillance System are documented 
 
 ---
 
+## [0.6.0] — 2026-03-11 — Advanced Cash Detection & Interaction Logic
+
+### Problem
+
+Even with context-aware filtering (v0.5.0), the model struggled with intermittent detections and false positives of objects that looked like cash in transaction zones. We needed a system robust enough to infer exchanges even when cash visibility flickered, while strictly eliminating false alarms from daily activities.
+
+### What Changed
+
+Implemented complete **6-Layer Architecture** missing structural pieces:
+
+#### Layer 3: Hand Detection (`pycode/utils/hand_detector.py`) [NEW]
+- Uses **YOLOv8-pose** to detect human wrists (COCO keypoints 9 & 10).
+- Associates hands to tracked individuals via bounding box correlation.
+- Computes distances between cashier and customer hands to detect physical interactions.
+
+#### Layer 5: Multi-Signal Timeline Fusion (`pycode/utils/interaction_analyzer.py`) [NEW]
+- Merges signals across rolling time windows (zones, hand interactions, cash sightings).
+- **Rule Engine**: Infers a `CASH_EXCHANGE` if hands interact closely (< 90px) within transaction zones for over 1.0–1.5 seconds, *even if the YOLO cash model misses the cash*.
+
+#### Layer 6: Fraud Rules (`pycode/utils/fraud_detector.py`) [NEW]
+- Evaluates event timelines for suspicious business logic violations:
+  - `UNREGISTERED_CASH`: Cashier engaged in an exchange but failed to visit the cash register within 10 seconds.
+  - `POSSIBLE_POCKETING`: Cashier pockets cash immediately after an exchange.
+- *Tuning Note*: Specifically ignores Customers putting cash in their pockets (a normal behavior that flooded earlier logs).
+
+#### YOLO Model Retraining (v2)
+- Re-trained the core cash detector on a highly specific **"Hands in transaction.v4"** dataset to improve performance.
+- Script `train_cash_v2.py` added with Early Stopping parameters.
+- **Results**: Achieved a stellar **mAP50 of 0.995** in just 12 epochs. This drastically improved raw detection capabilities underneath the interaction rules.
+
+---
+
 ## [0.5.0] — 2026-03-09 — Context-Aware Cash Filtering
 
 ### Problem

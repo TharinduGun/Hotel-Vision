@@ -117,8 +117,8 @@ class CashDetector:
 
         # Contextual filter params
         self.hand_region_ratio = hand_region_ratio
-        self.hand_margin_px = hand_margin_px
-        self.exchange_gap_px = exchange_gap_px
+        self.hand_margin_px = 100   # Was 60
+        self.exchange_gap_px = 150  # Was 100
         self.counter_person_radius_px = counter_person_radius_px
 
         # Geometric sanity params

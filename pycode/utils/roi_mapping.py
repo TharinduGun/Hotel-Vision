@@ -67,6 +67,8 @@ class ROIManager:
         "cashier": (0, 255, 0),          # Green
         "money_exchange": (0, 165, 255),  # Orange
         "cash_register": (255, 0, 255),   # Magenta
+        "transaction_roi": (0, 0, 255),   # Red
+        "customer_zone": (255, 255, 0),   # Cyan
     }
     DEFAULT_COLOR = (255, 255, 255)
 

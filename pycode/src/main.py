@@ -18,6 +18,9 @@ from utils.roi_mapping import ROIManager
 from utils.role_classifier import RoleClassifier
 from utils.cash_detector import CashDetector
 from utils.cash_tracker import CashTracker, CashEventType
+from utils.hand_detector import HandDetector
+from utils.interaction_analyzer import InteractionAnalyzer
+from utils.fraud_detector import FraudDetector
 
 
 def _dwell_category(duration_sec: float) -> str:
@@ -38,7 +41,7 @@ def _dwell_category(duration_sec: float) -> str:
 VIDEO_PATH = os.path.abspath(r"D:\Work\jwinfotech\Videoanalystics\video-analytics\resources\videos\Indoor_Original_VideoStream.mp4")   # <-- put your CCTV video here
 MODEL_PATH = "yolov8m.pt"                             # use yolov8n.pt if CPU is slow
 CASH_MODEL_PATH = os.path.abspath(os.path.join(
-    os.path.dirname(__file__), "..", "models", "cash_detector", "weights", "best.pt"
+    os.path.dirname(__file__), "..", "models", "cash_detector_v2", "train_v2", "weights", "best.pt"
 ))  # Trained cash detection model
 RUN_SECONDS = 1800                                      # <-- only process first 30 sec
 CLASSES = [0, 2]                                      # 0=person, 2=car
@@ -140,6 +143,8 @@ def main():
     processed_dir = os.path.join(session_dir, "processed_splits")
     final_video = os.path.join(session_dir, "final_tracked_output.mp4")
     summary_csv = os.path.join(session_dir, "tracking_summary.csv")
+    fraud_alerts_csv = os.path.join(session_dir, "fraud_alerts.csv")
+    exchange_events_csv = os.path.join(session_dir, "exchange_events.csv")
 
     os.makedirs(raw_dir, exist_ok=True)
     os.makedirs(processed_dir, exist_ok=True)
@@ -175,19 +180,33 @@ def main():
     # Cash Detection & Tracking (Phase: Cash Handling)
     cash_detector = None
     cash_tracker = None
+    hand_detector = None
+    interaction_analyzer = None
+    fraud_detector = None
+    
+    all_fraud_alerts = []
+    all_exchange_events = []
+    
     if ENABLE_CASH_DETECTION:
         if os.path.exists(CASH_MODEL_PATH):
             cash_detector = CashDetector(
                 model_path=CASH_MODEL_PATH,
-                conf_threshold=0.35,
+                conf_threshold=0.25, # Was 0.35, lowered to catch blurry/distant cash
                 device=device,
             )
+            # More forgiving tracking parameters
             cash_tracker = CashTracker(
-                pickup_debounce=5,
-                deposit_debounce=20,
+                pickup_debounce=2,    # Was 5
+                deposit_debounce=15,  # Was 20
                 zone_alert_cooldown=30,
             )
-            print("[Main] Cash detection ENABLED")
+            
+            # Initialize New Advanced Layers
+            hand_detector = HandDetector(device=device)
+            interaction_analyzer = InteractionAnalyzer(fps=fps if 'fps' in locals() and fps else 25.0)
+            fraud_detector = FraudDetector(fps=fps if 'fps' in locals() and fps else 25.0)
+            
+            print("[Main] Cash detection ENABLED with Advanced Interaction Analysis")
         else:
             print(f"[Main] Cash model not found at {CASH_MODEL_PATH} — cash detection DISABLED")
             print("[Main] Run pycode/scripts/train_cash_detector.py to train the model.")
@@ -333,7 +352,14 @@ def main():
                 # --- CASH DETECTION (runs after person tracking) ---
                 cash_detections = []
                 cash_associations = {"assigned": {}, "unassigned": []}
+                cash_events = []
+                person_hands = {}
+                hand_interactions = []
+                exchange_events = []
+                fraud_alerts = []
+                
                 if cash_detector is not None:
+                    # Layer 4: Cash Detection
                     cash_detections = cash_detector.detect(
                         r.orig_img,
                         person_tracks=curr_frame_tracks,
@@ -351,6 +377,51 @@ def main():
                             cash_associations=cash_associations,
                             roi_manager=roi_manager,
                         )
+                        
+                    # Build roles dict for advanced layers
+                    current_roles = {tid: role_classifier.get_role(tid) for tid in curr_frame_tracks.keys() if curr_frame_tracks[tid]['cls'] == 0}
+                        
+                    # Layer 3: Hand Detection & Interaction Analysis
+                    if hand_detector:
+                        person_hands, hand_interactions = hand_detector.detect_and_analyze(
+                            frame=r.orig_img,
+                            person_tracks=curr_frame_tracks,
+                            roles=current_roles,
+                            frame_idx=frame_idx,
+                            roi_manager=roi_manager
+                        )
+                        
+                    # Layer 5: Interaction Analyzer
+                    if interaction_analyzer:
+                        exchange_events = interaction_analyzer.update(
+                            frame_idx=frame_idx,
+                            current_time=current_time,
+                            person_tracks=curr_frame_tracks,
+                            roles=current_roles,
+                            hand_interactions=hand_interactions,
+                            cash_detections=cash_detections,
+                            roi_manager=roi_manager
+                        )
+                        if exchange_events:
+                            all_exchange_events.extend(exchange_events)
+                            for evt in exchange_events:
+                                print(f"  [Exchange] {evt.reason} (Conf: {evt.confidence})")
+                                
+                    # Layer 6: Fraud Detector
+                    if fraud_detector:
+                        fraud_alerts = fraud_detector.evaluate(
+                            frame_idx=frame_idx,
+                            current_time=current_time,
+                            exchange_events=exchange_events,
+                            cash_events=cash_events,
+                            person_hands=person_hands,
+                            roles=current_roles,
+                            roi_manager=roi_manager
+                        )
+                        if fraud_alerts:
+                            all_fraud_alerts.extend(fraud_alerts)
+                            for alert in fraud_alerts:
+                                print(f"  [FRAUD ALERT] {alert.alert_type}: {alert.description}")
 
                 # --- CUSTOM ANNOTATION (Visualizing the LOGICAL ID) ---
                 # We draw on the original frame using the re-linked IDs we just calculated.
@@ -396,6 +467,16 @@ def main():
                     t_size = cv2.getTextSize(label, 0, 0.6, 2)[0]
                     cv2.rectangle(annotated_frame, (x1, y1 - t_size[1] - 3), (x1 + t_size[0], y1), color, -1)
                     cv2.putText(annotated_frame, label, (x1, y1 - 2), 0, 0.6, (0, 0, 0), 2, lineType=cv2.LINE_AA)
+
+                # Draw advanced interactions
+                if hand_detector is not None:
+                    hand_detector.draw_hands(annotated_frame, person_hands, current_roles)
+                    hand_detector.draw_interactions(annotated_frame, hand_interactions)
+                    
+                # Draw latest active fraud alerts
+                if fraud_alerts:
+                    alert_text = f"ALERT: {fraud_alerts[-1].alert_type}"
+                    cv2.putText(annotated_frame, alert_text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
 
                 # Draw cash bounding boxes
                 if cash_detector is not None and cash_detections:
@@ -509,6 +590,50 @@ def main():
                     })
             print(f"Cash Events CSV: {os.path.basename(cash_csv)} ({len(cash_events_all)} events)")
         
+        # Exchanges CSV
+        if all_exchange_events:
+            EXCHANGE_CSV_FIELDS = [
+                "Customer_ID", "Cashier_ID", "Timestamp_Sec", "Frame_Idx",
+                "Confidence", "Reason", "Camera_ID", "Session_Start"
+            ]
+            with open(exchange_events_csv, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=EXCHANGE_CSV_FIELDS)
+                writer.writeheader()
+                for evt in all_exchange_events:
+                    writer.writerow({
+                        "Customer_ID": evt.customer_id,
+                        "Cashier_ID": evt.cashier_id,
+                        "Timestamp_Sec": round(evt.timestamp, 2),
+                        "Frame_Idx": evt.frame_idx,
+                        "Confidence": round(evt.confidence, 3),
+                        "Reason": evt.reason,
+                        "Camera_ID": CAMERA_ID,
+                        "Session_Start": session_start_iso,
+                    })
+            print(f"Exchange Events CSV: {os.path.basename(exchange_events_csv)} ({len(all_exchange_events)} events)")
+            
+        # Fraud Alerts CSV
+        if all_fraud_alerts:
+            FRAUD_CSV_FIELDS = [
+                "Alert_Type", "Person_ID", "Timestamp_Sec", "Frame_Idx",
+                "Confidence", "Description", "Camera_ID", "Session_Start"
+            ]
+            with open(fraud_alerts_csv, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=FRAUD_CSV_FIELDS)
+                writer.writeheader()
+                for alert in all_fraud_alerts:
+                    writer.writerow({
+                        "Alert_Type": alert.alert_type,
+                        "Person_ID": alert.person_id,
+                        "Timestamp_Sec": round(alert.timestamp, 2),
+                        "Frame_Idx": alert.frame_idx,
+                        "Confidence": round(alert.confidence, 3),
+                        "Description": alert.description,
+                        "Camera_ID": CAMERA_ID,
+                        "Session_Start": session_start_iso,
+                    })
+            print(f"Fraud Alerts CSV: {os.path.basename(fraud_alerts_csv)} ({len(all_fraud_alerts)} alerts)")
+            
         # Print cash summary
         cash_summary = cash_tracker.get_summary()
         print(f"\nCash Detection Summary:")
@@ -516,6 +641,8 @@ def main():
         for etype, count in cash_summary['events_by_type'].items():
             if count > 0:
                 print(f"  - {etype}: {count}")
+        print(f"  Total exchange events: {len(all_exchange_events)}")
+        print(f"  Total fraud alerts   : {len(all_fraud_alerts)}")
 
     # --- 5. STEP 4: VIDEO MERGE ---
     # REPLACED ffmpeg with cv2 implementation
