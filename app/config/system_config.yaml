@@ -1,0 +1,60 @@
+# ──────────────────────────────────────────────────────────────────────
+# Hotel Vision — Central System Configuration
+# ──────────────────────────────────────────────────────────────────────
+# This file drives the entire analytics engine.
+# Edit cameras, modules, and thresholds here — no code changes needed.
+#
+# Usage:
+#   python -m app.main                         (uses this file)
+#   python -m app.main --config path/to.yaml   (custom config)
+# ──────────────────────────────────────────────────────────────────────
+
+# ── Cameras ────────────────────────────────────────────────────────────
+cameras:
+  CAM-01:
+    name: "Main Lobby"
+    source: "resources/videos/Indoor_Original_VideoStream.mp4"
+    type: "file"            # "file" | "rtsp"
+    modules:
+      - gun_detection
+      - cash_detection
+    # Optional: run_seconds limits processing length (null = full video)
+    run_seconds: 1800
+
+# ── Modules ────────────────────────────────────────────────────────────
+modules:
+  gun_detection:
+    enabled: true
+    model_path: "pycode/models/gun_detector/weights/best.pt"
+    conf_threshold: 0.65        # Raised to filter out phones/hands (was 0.35)
+    person_roi_only: true       # Only detect within person bounding boxes (user requested)
+    roi_padding: 0.30           # 30% padding when person_roi_only is true
+    alert_cooldown_sec: 10.0    # Min seconds between alerts for same person
+    save_snapshots: true
+    save_clips: true
+    clip_duration_sec: 5.0      # Seconds of video to save around detection
+
+  cash_detection:
+    enabled: true
+    model_path: "pycode/models/cash_detector_v2/train_v2/weights/best.pt"
+    conf_threshold: 0.25
+    fps: 25.0
+    cameras: ["*"]
+
+# ── Shared Services ───────────────────────────────────────────────────
+shared:
+  person_model_path: "pycode/src/yolov8m.pt"
+  pose_model_path: "pycode/src/yolov8m-pose.pt"
+  device: "auto"                # "auto" | "cuda" | "cpu"
+  output_dir: "output/logs"
+  zones_config: "pycode/config/zones.json"
+
+  # Person detection settings
+  person_conf: 0.20
+  person_iou: 0.5
+  person_imgsz: 960
+  person_classes: [0, 2]        # 0=person, 2=car
+  min_persistence_frames: 60
+
+  # Tracker config (relative to project root)
+  tracker_config: "pycode/utils/tracker/bytetrack_cctv.yaml"
