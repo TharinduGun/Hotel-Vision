@@ -57,7 +57,7 @@ LAST_CHECKPOINT = os.path.join(
 
 # Dataset config (update this after downloading your dataset)
 DATASET_YAML = os.path.join(
-    PROJECT_ROOT, "resources", "datasets", "weapon-detection", "data.yaml"
+    PROJECT_ROOT, "resources", "datasets", "weapon-combined", "data.yaml"
 )
 
 # Training output directory
@@ -68,9 +68,9 @@ OUTPUT_NAME = "gun_detector"
 # HYPERPARAMETERS
 # ──────────────────────────────────────────────
 
-EPOCHS = 80             # More epochs for weapon detection (harder task)
+EPOCHS = 100            # 100 epochs for combined 14.9k image dataset
 IMG_SIZE = 640          # Image size
-BATCH_SIZE = 8          # 8 is safe for 16GB RAM; use 4 if OOM
+BATCH_SIZE = 4          # Reduced from 8 to prevent OOM during mosaic augmentation
 PATIENCE = 15           # Early stopping — stop if no improvement for 15 epochs
 WORKERS = 0             # 0 = main process only (avoids Windows multiprocessing errors)
 DEVICE = "0"            # "0" for GPU, "cpu" for CPU

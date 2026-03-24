@@ -1,8 +1,8 @@
 task: detect
 mode: train
-model: D:\Work\jwinfotech\Videoanalystics\video-analytics\pycode\src\yolov8m.pt
-data: D:\Work\jwinfotech\Videoanalystics\video-analytics\resources\datasets\weapon-detection\data.yaml
-epochs: 80
+model: D:\Work\jwinfotech\Videoanalystics\video-analytics\pycode\models\gun_detector\weights\last.pt
+data: D:\Work\jwinfotech\Videoanalystics\video-analytics\resources\datasets\weapon-combined\data.yaml
+epochs: 100
 time: null
 patience: 15
 batch: 8
@@ -24,7 +24,7 @@ single_cls: false
 rect: false
 cos_lr: true
 close_mosaic: 10
-resume: false
+resume: D:\Work\jwinfotech\Videoanalystics\video-analytics\pycode\models\gun_detector\weights\last.pt
 amp: true
 fraction: 1.0
 profile: false
@@ -76,7 +76,7 @@ momentum: 0.937
 weight_decay: 0.0005
 warmup_epochs: 3
 warmup_momentum: 0.8
-warmup_bias_lr: 0.1
+warmup_bias_lr: 0.0
 box: 7.5
 cls: 0.5
 dfl: 1.5

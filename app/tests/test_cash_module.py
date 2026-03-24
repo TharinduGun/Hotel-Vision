@@ -58,7 +58,7 @@ def test_cash_module_shutdown_without_init():
 
 def test_cash_event_severity_mapping():
     """Cash event types should map to appropriate severity levels."""
-    from utils.cash_tracker import CashEventType
+    from app.modules.cash_detection.cash_tracker import CashEventType
     
     assert CASH_EVENT_SEVERITY[CashEventType.CASH_PICKUP] == Severity.MEDIUM
     assert CASH_EVENT_SEVERITY[CashEventType.CASH_DEPOSIT] == Severity.LOW

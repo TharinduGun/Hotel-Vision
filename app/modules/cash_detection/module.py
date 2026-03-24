@@ -25,17 +25,12 @@ from pathlib import Path
 from app.contracts.base_module import AnalyticsModule, FrameContext
 from app.contracts.event_schema import AnalyticsEvent, Severity
 
-# Add pycode to path so we can import the existing utilities
-_PYCODE_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / "pycode")
-if _PYCODE_DIR not in sys.path:
-    sys.path.insert(0, _PYCODE_DIR)
-
-from utils.cash_detector import CashDetector
-from utils.cash_tracker import CashTracker, CashEventType
-from utils.hand_detector import HandDetector
-from utils.interaction_analyzer import InteractionAnalyzer
-from utils.fraud_detector import FraudDetector
-from utils.role_classifier import RoleClassifier
+from .cash_detector import CashDetector
+from .cash_tracker import CashTracker, CashEventType
+from .hand_detector import HandDetector
+from .interaction_analyzer import InteractionAnalyzer
+from .fraud_detector import FraudDetector
+from .role_classifier import RoleClassifier
 
 
 # ── Event type → severity mapping ─────────────────────────────────────
@@ -188,6 +183,8 @@ class CashDetectionModule(AnalyticsModule):
             for tid, tdata in person_tracks.items()
             if tdata.get("cls") == 0
         }
+        # Push roles back to shared context for orchestrator drawing
+        context.roles.update(current_roles)
 
         # ── Layer 3: Cash State Tracking ───────────────────────────
         cash_events = []

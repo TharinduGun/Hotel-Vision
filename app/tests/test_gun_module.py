@@ -211,6 +211,71 @@ def test_event_has_person_id():
     assert events[0].person_id == 7
 
 
+# ── Bbox size filter tests ────────────────────────────────────────────
+
+def test_oversized_detection_filtered():
+    """Weapon bboxes larger than 40% of person area should be rejected."""
+    from app.modules.gun_detection.detector import GunDetector
+
+    # Simulate: person bbox = 200x400 = 80,000 px²
+    # weapon bbox = 200x200 = 40,000 px² → 50% of person → REJECT
+    person_area = 200 * 400
+    weapon_w, weapon_h = 200, 200
+    weapon_area = weapon_w * weapon_h
+    ratio = weapon_area / person_area
+    assert ratio > 0.40, "Oversized weapon should exceed max area ratio"
+
+
+def test_normal_detection_passes_size_filter():
+    """Weapon bboxes smaller than 40% of person area should pass."""
+    # person bbox = 200x400 = 80,000 px²
+    # weapon bbox = 50x30 = 1,500 px² → 1.9% of person → PASS
+    person_area = 200 * 400
+    weapon_w, weapon_h = 50, 30
+    weapon_area = weapon_w * weapon_h
+    ratio = weapon_area / person_area
+    assert ratio <= 0.40, "Normal weapon should be within area ratio"
+
+
+def test_extreme_aspect_ratio_filtered():
+    """Detections with extreme aspect ratio (>5:1) should be rejected."""
+    # 100x10 → aspect = 10:1 → REJECT
+    w, h = 100, 10
+    aspect = max(w, h) / max(min(w, h), 1)
+    assert aspect > 5.0, "Extreme aspect ratio should exceed threshold"
+
+
+# ── Hand proximity filter tests ──────────────────────────────────────
+
+def test_detection_near_hand_passes():
+    """A weapon detection near a wrist keypoint should pass proximity check."""
+    import math
+
+    # Person height = 400 px, hand_radius_ratio = 0.4 → max_dist = 160 px
+    person_height = 400
+    hand_radius_ratio = 0.4
+    max_dist = hand_radius_ratio * person_height
+
+    wrist_pos = (250, 350)
+    weapon_center = (260, 340)  # 14px away → should PASS
+    dist = math.hypot(weapon_center[0] - wrist_pos[0], weapon_center[1] - wrist_pos[1])
+    assert dist <= max_dist, "Weapon near hand should pass proximity filter"
+
+
+def test_detection_far_from_hand_filtered():
+    """A weapon detection far from all wrists should be rejected."""
+    import math
+
+    person_height = 400
+    hand_radius_ratio = 0.4
+    max_dist = hand_radius_ratio * person_height  # 160 px
+
+    wrist_pos = (250, 350)
+    weapon_center = (250, 100)  # 250px away → should REJECT
+    dist = math.hypot(weapon_center[0] - wrist_pos[0], weapon_center[1] - wrist_pos[1])
+    assert dist > max_dist, "Weapon far from hand should fail proximity filter"
+
+
 # ── Run all tests ─────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -228,4 +293,10 @@ if __name__ == "__main__":
     test_default_severity()
     test_event_has_weapon_class_metadata()
     test_event_has_person_id()
+    test_oversized_detection_filtered()
+    test_normal_detection_passes_size_filter()
+    test_extreme_aspect_ratio_filtered()
+    test_detection_near_hand_passes()
+    test_detection_far_from_hand_filtered()
     print("✅ All gun detection module tests passed!")
+

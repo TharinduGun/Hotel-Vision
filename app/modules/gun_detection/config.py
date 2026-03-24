@@ -13,4 +13,10 @@ GUN_DETECTION_DEFAULTS = {
     "save_clips": True,
     "clip_duration_sec": 5.0,
     "cameras": ["*"],  # All cameras by default
+    # Hand proximity filter (YOLOv8-pose)
+    "hand_proximity_filter": True,
+    "pose_model_path": "pycode/src/yolov8m-pose.pt",
+    "hand_radius_ratio": 0.4,      # Max distance from wrist as ratio of person height
+    # Bbox size filter
+    "max_weapon_area_ratio": 0.40,  # Weapon area must be < 40% of person area
 }

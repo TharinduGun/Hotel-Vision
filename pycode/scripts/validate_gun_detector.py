@@ -18,7 +18,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 # Paths
 MODEL_PATH = os.path.join(PROJECT_ROOT, "pycode", "models", "gun_detector", "weights", "best.pt")
 DATASET_YAML = os.path.join(
-    PROJECT_ROOT, "resources", "datasets", "weapon-detection", "data.yaml"
+    PROJECT_ROOT, "resources", "datasets", "weapon-combined", "data.yaml"
 )
 
 

@@ -201,7 +201,7 @@ class Engine:
 
                 # ── Annotate output video ──────────────────────────
                 annotated = self._annotate_frame(
-                    frame, person_tracks, all_events, roi_manager=roi_manager
+                    frame, person_tracks, all_events, roi_manager=roi_manager, roles=context.roles
                 )
                 out_writer.write(annotated)
 
@@ -216,6 +216,7 @@ class Engine:
         person_tracks: dict,
         events: list[AnalyticsEvent],
         roi_manager: ROIManager | None = None,
+        roles: dict | None = None,
     ) -> np.ndarray:
         """Draw person boxes, zones, and event detections on the frame."""
         annotated = frame.copy()
@@ -230,8 +231,20 @@ class Engine:
                 continue
             bx = tdata["bbox"]
             x1, y1, x2, y2 = int(bx[0]), int(bx[1]), int(bx[2]), int(bx[3])
-            color = (0, 255, 255)  # Yellow for persons
+            
+            # Default formatting
+            color = (0, 255, 255)  # Yellow for unknown/persons
             label = f"ID: {tid}"
+
+            # Role formatting
+            if roles and tid in roles:
+                role = roles[tid]
+                if role == "Cashier":
+                    color = (0, 255, 0)   # Green for staff
+                    label = f"Cashier {tid}"
+                elif role == "Customer":
+                    color = (255, 0, 0)   # Blue for customer
+                    label = f"Customer {tid}"
 
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
             t_size = cv2.getTextSize(label, 0, 0.6, 2)[0]

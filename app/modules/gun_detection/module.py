@@ -62,6 +62,14 @@ class GunDetectionModule(AnalyticsModule):
         self._cooldown_sec = config.get("alert_cooldown_sec", 10.0)
         self._cameras = config.get("cameras", ["*"])
 
+        # Hand proximity filter settings
+        hand_proximity_filter = config.get("hand_proximity_filter", True)
+        pose_model_path = config.get("pose_model_path", "pycode/src/yolov8m-pose.pt")
+        hand_radius_ratio = config.get("hand_radius_ratio", 0.4)
+
+        # Size filter settings
+        max_weapon_area_ratio = config.get("max_weapon_area_ratio", 0.40)
+
         # Resolve device
         import torch
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -72,6 +80,10 @@ class GunDetectionModule(AnalyticsModule):
             device=device,
             person_roi_only=person_roi_only,
             roi_padding=roi_padding,
+            hand_proximity_filter=hand_proximity_filter,
+            pose_model_path=pose_model_path,
+            hand_radius_ratio=hand_radius_ratio,
+            max_weapon_area_ratio=max_weapon_area_ratio,
         )
 
         print(f"[GunDetectionModule] Initialized "

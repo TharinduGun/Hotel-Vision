@@ -3,12 +3,15 @@ Gun Detector — Core Inference Engine
 ======================================
 Loads a YOLOv8 model trained on weapon detection and runs inference.
 
-Key feature: Person-ROI gated detection — only scans within person
-bounding boxes to save compute and reduce false positives.
+Key features:
+  - Person-ROI gated detection (only scans within person bounding boxes)
+  - Hand proximity filter (YOLOv8-pose wrist keypoints)
+  - Bbox size validation (rejects oversized / extreme-ratio detections)
 """
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 
@@ -39,15 +42,17 @@ class GunDetector:
     """
     YOLOv8-based gun/weapon detector.
 
-    Two operating modes:
-      1. **Person-ROI mode** (default): Crop each person's bounding box
-         region, run detection on the crop, then map results back to
-         full-frame coordinates. Saves GPU compute and massively reduces
-         false positives (walls, signs, etc.).
-
-      2. **Full-frame mode**: Run detection on the entire frame.
-         Used when no person tracks are available.
+    Three layers of false-positive filtering:
+      1. **Person-ROI mode**: Only scan within person bounding boxes.
+      2. **Bbox size filter**: Reject detections that are too large relative
+         to the person, or have extreme aspect ratios.
+      3. **Hand proximity filter**: Use YOLOv8-pose wrist keypoints to only
+         accept detections near a person's hands.
     """
+
+    # COCO Pose keypoint indices for wrists
+    LEFT_WRIST_IDX = 9
+    RIGHT_WRIST_IDX = 10
 
     def __init__(
         self,
@@ -55,8 +60,15 @@ class GunDetector:
         conf_threshold: float = 0.55,
         device: str = "cuda",
         person_roi_only: bool = True,
-        roi_padding: float = 0.30,      # Expand person bbox by 30% for context (arms/weapons)
+        roi_padding: float = 0.30,
         imgsz: int = 640,
+        # ── Hand proximity filtering ──────────────────
+        hand_proximity_filter: bool = True,
+        pose_model_path: str = "yolov8m-pose.pt",
+        hand_radius_ratio: float = 0.4,
+        # ── Bbox size filtering ───────────────────────
+        max_weapon_area_ratio: float = 0.40,
+        max_aspect_ratio: float = 5.0,
     ):
         if not os.path.exists(model_path):
             raise FileNotFoundError(
@@ -72,10 +84,33 @@ class GunDetector:
         self.imgsz = imgsz
         self._class_names = self.model.names
 
+        # Size filter params
+        self.max_weapon_area_ratio = max_weapon_area_ratio
+        self.max_aspect_ratio = max_aspect_ratio
+
+        # Hand proximity params
+        self.hand_proximity_filter = hand_proximity_filter
+        self.hand_radius_ratio = hand_radius_ratio
+        self._pose_model: YOLO | None = None
+        self._pose_model_path = pose_model_path
+
         print(f"[GunDetector] Loaded model: {model_path}")
         print(f"[GunDetector] Classes: {self._class_names}")
         print(f"[GunDetector] Confidence: {conf_threshold}, "
               f"ROI-only: {person_roi_only}")
+        print(f"[GunDetector] Hand proximity filter: {hand_proximity_filter}")
+        print(f"[GunDetector] Max weapon/person area ratio: {max_weapon_area_ratio}")
+
+    # ── Lazy pose model loading ───────────────────────────────────────
+
+    def _get_pose_model(self) -> YOLO:
+        """Load pose model on first use to avoid GPU overhead if unused."""
+        if self._pose_model is None:
+            print(f"[GunDetector] Loading pose model: {self._pose_model_path}")
+            self._pose_model = YOLO(self._pose_model_path)
+        return self._pose_model
+
+    # ── Public API ────────────────────────────────────────────────────
 
     def detect(
         self,
@@ -98,12 +133,14 @@ class GunDetector:
         else:
             return self._detect_full_frame(frame)
 
+    # ── Full-frame detection (fallback) ───────────────────────────────
+
     def _detect_full_frame(self, frame: np.ndarray) -> list[GunDetection]:
         """Run detection on the entire frame."""
         results = self.model.predict(
             source=frame,
             conf=self.conf_threshold,
-            iou=0.45,                 # Lower IoU to prevent suppressing close weapons
+            iou=0.45,
             device=self.device,
             verbose=False,
             imgsz=self.imgsz,
@@ -128,6 +165,8 @@ class GunDetector:
 
         return detections
 
+    # ── Person-ROI gated detection (primary mode) ─────────────────────
+
     def _detect_in_person_rois(
         self,
         frame: np.ndarray,
@@ -136,14 +175,13 @@ class GunDetector:
         """
         Run detection only within each person's bounding box.
 
-        For each person:
-          1. Crop the person region (with padding for context)
-          2. Run YOLO on the crop
-          3. Map detections back to full-frame coordinates
-          4. Tag each detection with the person_id
+        Filtering pipeline per detection:
+          1. Bbox size check — reject if weapon area > max_weapon_area_ratio
+             of person area, or if aspect ratio is extreme.
+          2. Hand proximity check — reject if weapon center is too far from
+             any wrist keypoint of the associated person.
         """
         frame_h, frame_w = frame.shape[:2]
-        detections = []
 
         # Only process person tracks (cls == 0)
         persons = {
@@ -151,10 +189,22 @@ class GunDetector:
             if data.get("cls") == 0
         }
 
+        if not persons:
+            return []
+
+        # ── Get wrist keypoints for all persons (one pose pass) ───────
+        person_wrists: dict[int, list[tuple[float, float]]] = {}
+        if self.hand_proximity_filter:
+            person_wrists = self._get_person_wrists(frame, persons)
+
+        # ── Run weapon detection per person ROI ───────────────────────
+        detections = []
+
         for pid, pdata in persons.items():
             px1, py1, px2, py2 = pdata["bbox"]
             pw = px2 - px1
             ph = py2 - py1
+            person_area = pw * ph
 
             # Expand bbox with padding for context
             pad_x = pw * self.roi_padding
@@ -177,42 +227,164 @@ class GunDetector:
             results = self.model.predict(
                 source=crop,
                 conf=self.conf_threshold,
-                iou=0.45,             # Lower IoU to prevent suppressing close weapons
+                iou=0.45,
                 device=self.device,
                 verbose=False,
                 imgsz=self.imgsz,
             )
 
-            if results and results[0].boxes is not None and len(results[0].boxes) > 0:
-                boxes = results[0].boxes
-                for i in range(len(boxes)):
-                    # Get detection in crop coordinates
-                    crop_bbox = boxes.xyxy[i].cpu().tolist()
-                    conf = float(boxes.conf[i].cpu())
-                    cls_id = int(boxes.cls[i].cpu())
-                    cls_name = self._class_names.get(cls_id, f"weapon_{cls_id}")
+            if not results or results[0].boxes is None or len(results[0].boxes) == 0:
+                continue
 
-                    # Map back to full-frame coordinates
-                    full_bbox = [
-                        crop_bbox[0] + cx1,
-                        crop_bbox[1] + cy1,
-                        crop_bbox[2] + cx1,
-                        crop_bbox[3] + cy1,
-                    ]
+            boxes = results[0].boxes
+            for i in range(len(boxes)):
+                # Get detection in crop coordinates
+                crop_bbox = boxes.xyxy[i].cpu().tolist()
+                conf = float(boxes.conf[i].cpu())
+                cls_id = int(boxes.cls[i].cpu())
+                cls_name = self._class_names.get(cls_id, f"weapon_{cls_id}")
 
-                    detections.append(GunDetection(
-                        bbox=full_bbox,
-                        confidence=conf,
-                        class_name=cls_name,
-                        class_id=cls_id,
-                        person_id=pid,
-                    ))
+                # Map back to full-frame coordinates
+                full_bbox = [
+                    crop_bbox[0] + cx1,
+                    crop_bbox[1] + cy1,
+                    crop_bbox[2] + cx1,
+                    crop_bbox[3] + cy1,
+                ]
+
+                # ── FILTER 1: Bbox size check ─────────────────────
+                wep_w = full_bbox[2] - full_bbox[0]
+                wep_h = full_bbox[3] - full_bbox[1]
+                wep_area = wep_w * wep_h
+
+                # Reject if weapon area > max ratio of person area
+                if person_area > 0 and (wep_area / person_area) > self.max_weapon_area_ratio:
+                    continue
+
+                # Reject extreme aspect ratios
+                aspect = max(wep_w, wep_h) / max(min(wep_w, wep_h), 1)
+                if aspect > self.max_aspect_ratio:
+                    continue
+
+                # ── FILTER 2: Hand proximity check ────────────────
+                if self.hand_proximity_filter and pid in person_wrists:
+                    wrists = person_wrists[pid]
+                    if wrists:
+                        # Weapon center
+                        wep_cx = (full_bbox[0] + full_bbox[2]) / 2
+                        wep_cy = (full_bbox[1] + full_bbox[3]) / 2
+
+                        # Max allowed distance = hand_radius_ratio * person height
+                        max_dist = self.hand_radius_ratio * ph
+
+                        # Check if weapon center is near ANY wrist
+                        near_hand = False
+                        for wx, wy in wrists:
+                            dist = math.hypot(wep_cx - wx, wep_cy - wy)
+                            if dist <= max_dist:
+                                near_hand = True
+                                break
+
+                        if not near_hand:
+                            continue  # Too far from hands → reject
+
+                detections.append(GunDetection(
+                    bbox=full_bbox,
+                    confidence=conf,
+                    class_name=cls_name,
+                    class_id=cls_id,
+                    person_id=pid,
+                ))
 
         return detections
+
+    # ── Pose estimation helpers ───────────────────────────────────────
+
+    def _get_person_wrists(
+        self,
+        frame: np.ndarray,
+        persons: dict[int, dict],
+    ) -> dict[int, list[tuple[float, float]]]:
+        """
+        Run YOLOv8-pose on the frame and map wrist keypoints to tracked persons.
+
+        Returns:
+            { person_id: [(wrist_x, wrist_y), ...] }  (up to 2 wrists per person)
+        """
+        pose_model = self._get_pose_model()
+
+        results = pose_model.predict(
+            source=frame,
+            device=self.device,
+            verbose=False,
+            imgsz=640,
+            classes=[0],  # Only detect persons
+        )
+
+        # Initialize empty wrists for all persons
+        person_wrists: dict[int, list[tuple[float, float]]] = {
+            pid: [] for pid in persons
+        }
+
+        if (not results
+                or not results[0].keypoints
+                or results[0].keypoints.data is None):
+            return person_wrists
+
+        kp_data = results[0].keypoints.data.cpu().numpy()   # (N, 17, 3)
+        pose_boxes = results[0].boxes.xyxy.cpu().numpy()     # (N, 4)
+
+        # Map each pose detection to a tracked person via IOU
+        for i in range(len(pose_boxes)):
+            pose_box = pose_boxes[i]
+            kpts = kp_data[i]
+
+            best_pid = None
+            best_iou = 0.3  # Minimum IOU threshold
+
+            for pid, pdata in persons.items():
+                track_box = pdata["bbox"]
+                iou = self._compute_iou(pose_box, track_box)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_pid = pid
+
+            if best_pid is not None:
+                # Extract valid wrists
+                lw_x, lw_y, lw_conf = kpts[self.LEFT_WRIST_IDX]
+                if lw_conf >= 0.3:
+                    person_wrists[best_pid].append((float(lw_x), float(lw_y)))
+
+                rw_x, rw_y, rw_conf = kpts[self.RIGHT_WRIST_IDX]
+                if rw_conf >= 0.3:
+                    person_wrists[best_pid].append((float(rw_x), float(rw_y)))
+
+        return person_wrists
+
+    @staticmethod
+    def _compute_iou(box1, box2) -> float:
+        """Compute Intersection over Union between two boxes [x1,y1,x2,y2]."""
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+
+        if x1 >= x2 or y1 >= y2:
+            return 0.0
+
+        inter = (x2 - x1) * (y2 - y1)
+        area1 = max((box1[2] - box1[0]) * (box1[3] - box1[1]), 1e-6)
+        area2 = max((box2[2] - box2[0]) * (box2[3] - box2[1]), 1e-6)
+        union = area1 + area2 - inter
+
+        return inter / union if union > 0 else 0.0
 
     def shutdown(self):
         """Release model and GPU memory."""
         del self.model
+        if self._pose_model is not None:
+            del self._pose_model
+            self._pose_model = None
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         print("[GunDetector] Shut down")
