@@ -14,6 +14,7 @@ from collections import defaultdict
 from app.contracts.base_module import AnalyticsModule, FrameContext
 from app.contracts.event_schema import AnalyticsEvent, Severity
 from .detector import GunDetector
+from .temporal_filter import TemporalFilter
 
 
 # ── Severity mapping by weapon class ──────────────────────────────────
@@ -46,6 +47,7 @@ class GunDetectionModule(AnalyticsModule):
         # Alert cooldown: { person_id: last_alert_timestamp }
         self._cooldowns: dict[int, float] = defaultdict(lambda: -999.0)
         self._cooldown_sec: float = 10.0
+        self._temporal_filter: TemporalFilter | None = None
 
     @property
     def name(self) -> str:
@@ -69,6 +71,11 @@ class GunDetectionModule(AnalyticsModule):
 
         # Size filter settings
         max_weapon_area_ratio = config.get("max_weapon_area_ratio", 0.40)
+        
+        # Temporal Filter Settings
+        t_min_frames = config.get("temporal_min_frames", 3)
+        t_window = config.get("temporal_window", 5)
+        self._temporal_filter = TemporalFilter(min_frames=t_min_frames, window_size=t_window)
 
         # Resolve device
         import torch
@@ -112,13 +119,28 @@ class GunDetectionModule(AnalyticsModule):
             person_tracks=context.person_tracks,
         )
 
+        # ── Temporal consistency filter ────────────────────────────
+        if self._temporal_filter is not None:
+            active_keys = set(context.person_tracks.keys())
+            detected_keys = {d.person_id for d in raw_detections if d.person_id is not None}
+            if any(d.person_id is None for d in raw_detections):
+                detected_keys.add("global")
+                active_keys.add("global")
+            self._temporal_filter.update(active_keys, detected_keys)
+
         if not raw_detections:
             return []
 
-        # ── Filter by cooldown ─────────────────────────────────────
+        # ── Filter by cooldown & temporal ─────────────────────────
         events = []
 
         for det in raw_detections:
+            key = det.person_id if det.person_id is not None else "global"
+            
+            # Apply Temporal Filter
+            if self._temporal_filter is not None and not self._temporal_filter.is_consistent(key):
+                continue
+                
             # Apply per-person cooldown
             person_key = det.person_id if det.person_id is not None else -1
             last_alert = self._cooldowns[person_key]

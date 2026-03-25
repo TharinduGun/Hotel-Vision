@@ -47,17 +47,17 @@ from ultralytics import YOLO
 # Paths (relative to project root)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-# Base model — transfer learning from our existing YOLOv8m
-BASE_MODEL = os.path.join(PROJECT_ROOT, "pycode", "src", "yolov8m.pt")
+# Base model — fine-tune from our existing trained model
+BASE_MODEL = os.path.join(PROJECT_ROOT, "pycode", "models", "gun_detector", "weights", "best.pt")
 
 # Checkpoint from previous interrupted training
 LAST_CHECKPOINT = os.path.join(
     PROJECT_ROOT, "pycode", "models", "gun_detector", "weights", "last.pt"
 )
 
-# Dataset config (update this after downloading your dataset)
+# Dataset config (merged v1 + v2 + CCTV datasets)
 DATASET_YAML = os.path.join(
-    PROJECT_ROOT, "resources", "datasets", "weapon-combined", "data.yaml"
+    PROJECT_ROOT, "resources", "datasets", "weapon-combined-v2", "data.yaml"
 )
 
 # Training output directory
@@ -68,13 +68,14 @@ OUTPUT_NAME = "gun_detector"
 # HYPERPARAMETERS
 # ──────────────────────────────────────────────
 
-EPOCHS = 100            # 100 epochs for combined 14.9k image dataset
+EPOCHS = 50             # 50 epochs for fine-tuning (model already trained)
 IMG_SIZE = 640          # Image size
 BATCH_SIZE = 4          # Reduced from 8 to prevent OOM during mosaic augmentation
 PATIENCE = 15           # Early stopping — stop if no improvement for 15 epochs
 WORKERS = 0             # 0 = main process only (avoids Windows multiprocessing errors)
 DEVICE = "0"            # "0" for GPU, "cpu" for CPU
 CONF_THRESHOLD = 0.25   # Confidence threshold for validation
+LEARNING_RATE = 0.001   # Lower LR for fine-tuning (was 0.01 for initial training)
 
 
 def main():
@@ -172,7 +173,7 @@ def main():
         exist_ok=True,         # Overwrite if re-training
         pretrained=True,       # Use pretrained weights
         optimizer="auto",
-        lr0=0.01,
+        lr0=LEARNING_RATE,     # Lower LR for fine-tuning
         lrf=0.01,
         warmup_epochs=3,
         cos_lr=True,
@@ -191,6 +192,7 @@ def main():
         fliplr=0.5,            # Horizontal flip probability
         mosaic=1.0,            # Mosaic augmentation
         mixup=0.15,            # Mixup augmentation (blend images)
+        close_mosaic=10,       # Disable mosaic last 10 epochs for precision
     )
 
     # ── 6. Summary ──────────────────────────────

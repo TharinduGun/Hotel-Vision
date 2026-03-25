@@ -26,7 +26,7 @@ modules:
   gun_detection:
     enabled: true
     model_path: "pycode/models/gun_detector/weights/best.pt"
-    conf_threshold: 0.65        # Raised to filter out phones/hands (was 0.35)
+    conf_threshold: 0.80        # Restored to 0.80 (strict filter)
     person_roi_only: true       # Only detect within person bounding boxes (user requested)
     roi_padding: 0.30           # 30% padding when person_roi_only is true
     alert_cooldown_sec: 10.0    # Min seconds between alerts for same person
@@ -39,6 +39,12 @@ modules:
     hand_radius_ratio: 0.4      # Max distance from wrist (as ratio of person height)
     # Size filter — reject oversized detections
     max_weapon_area_ratio: 0.40  # Weapon bbox area must be < 40% of person bbox area
+    # Minimum size filters — reject tiny noise detections
+    min_weapon_pixels: 900       # Min weapon bbox area in pixels (≈30×30)
+    min_weapon_height_ratio: 0.05  # Weapon height must be ≥5% of person height
+    # Temporal consistency — require persistence across frames
+    temporal_min_frames: 3       # Min frames with detections to confirm
+    temporal_window: 5           # Out of last N frame observations
 
   cash_detection:
     enabled: true
