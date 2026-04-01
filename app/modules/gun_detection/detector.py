@@ -69,6 +69,9 @@ class GunDetector:
         # ── Bbox size filtering ───────────────────────
         max_weapon_area_ratio: float = 0.40,
         max_aspect_ratio: float = 5.0,
+        # ── Minimum size filtering ────────────────────
+        min_weapon_pixels: int = 900,
+        min_weapon_height_ratio: float = 0.05,
     ):
         if not os.path.exists(model_path):
             raise FileNotFoundError(
@@ -87,6 +90,8 @@ class GunDetector:
         # Size filter params
         self.max_weapon_area_ratio = max_weapon_area_ratio
         self.max_aspect_ratio = max_aspect_ratio
+        self.min_weapon_pixels = min_weapon_pixels
+        self.min_weapon_height_ratio = min_weapon_height_ratio
 
         # Hand proximity params
         self.hand_proximity_filter = hand_proximity_filter
@@ -100,6 +105,8 @@ class GunDetector:
               f"ROI-only: {person_roi_only}")
         print(f"[GunDetector] Hand proximity filter: {hand_proximity_filter}")
         print(f"[GunDetector] Max weapon/person area ratio: {max_weapon_area_ratio}")
+        print(f"[GunDetector] Min weapon pixels: {min_weapon_pixels}, "
+              f"min height ratio: {min_weapon_height_ratio}")
 
     # ── Lazy pose model loading ───────────────────────────────────────
 
@@ -264,6 +271,14 @@ class GunDetector:
                 # Reject extreme aspect ratios
                 aspect = max(wep_w, wep_h) / max(min(wep_w, wep_h), 1)
                 if aspect > self.max_aspect_ratio:
+                    continue
+
+                # Reject tiny detections (noise)
+                if wep_area < self.min_weapon_pixels:
+                    continue
+
+                # Reject if weapon height is too small relative to person
+                if ph > 0 and (wep_h / ph) < self.min_weapon_height_ratio:
                     continue
 
                 # ── FILTER 2: Hand proximity check ────────────────

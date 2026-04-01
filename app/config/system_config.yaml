@@ -26,7 +26,7 @@ modules:
   gun_detection:
     enabled: true
     model_path: "pycode/models/gun_detector/weights/best.pt"
-    conf_threshold: 0.80        # Restored to 0.80 (strict filter)
+    conf_threshold: 0.7       # Restored to 0.80 (strict filter)
     person_roi_only: true       # Only detect within person bounding boxes (user requested)
     roi_padding: 0.30           # 30% padding when person_roi_only is true
     alert_cooldown_sec: 10.0    # Min seconds between alerts for same person

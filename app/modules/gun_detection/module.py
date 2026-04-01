@@ -71,6 +71,8 @@ class GunDetectionModule(AnalyticsModule):
 
         # Size filter settings
         max_weapon_area_ratio = config.get("max_weapon_area_ratio", 0.40)
+        min_weapon_pixels = config.get("min_weapon_pixels", 900)
+        min_weapon_height_ratio = config.get("min_weapon_height_ratio", 0.05)
         
         # Temporal Filter Settings
         t_min_frames = config.get("temporal_min_frames", 3)
@@ -91,6 +93,8 @@ class GunDetectionModule(AnalyticsModule):
             pose_model_path=pose_model_path,
             hand_radius_ratio=hand_radius_ratio,
             max_weapon_area_ratio=max_weapon_area_ratio,
+            min_weapon_pixels=min_weapon_pixels,
+            min_weapon_height_ratio=min_weapon_height_ratio,
         )
 
         print(f"[GunDetectionModule] Initialized "
