@@ -107,6 +107,48 @@ class EmployeesResponse(BaseModel):
     items: list[Employee]
 
 
+# ── Crowd Detection ───────────────────────────────────────────────────
+
+class CrowdFootfallEvent(BaseModel):
+    trackId: int
+    direction: str              # "entry" | "exit"
+    timestampSec: float
+    frameIdx: int
+    edge: str                   # "top" | "bottom" | "left" | "right"
+    positionX: float
+    positionY: float
+
+
+class CrowdDwellRecord(BaseModel):
+    trackId: int
+    entryTimeSec: float
+    exitTimeSec: float
+    durationSec: float
+    entryX: float
+    entryY: float
+    exitX: float
+    exitY: float
+
+
+class CrowdSummary(BaseModel):
+    totalEntries: int = 0
+    totalExits: int = 0
+    peakOccupancy: int = 0
+    avgOccupancy: float = 0.0
+    currentDensity: str = "low"         # low | moderate | high | critical
+    avgDwellSec: float = 0.0
+    maxDwellSec: float = 0.0
+    totalUniquePersons: int = 0
+
+
+class CrowdInsightsResponse(BaseModel):
+    ts: datetime
+    summary: CrowdSummary
+    recentFootfall: list[CrowdFootfallEvent] = []
+    recentDwells: list[CrowdDwellRecord] = []
+    heatmapUrl: Optional[str] = None
+
+
 # ── Combined live state ────────────────────────────────────────────────
 
 class LiveState(BaseModel):
@@ -114,6 +156,8 @@ class LiveState(BaseModel):
     snapshots: list[CameraSnapshot]
     alerts: AlertsResponse
     employees: EmployeesResponse
+    crowd: Optional[CrowdInsightsResponse] = None
+
 
 
 # ── WebSocket message envelope ─────────────────────────────────────────

@@ -18,6 +18,7 @@ from app.contracts.base_module import AnalyticsModule
 MODULE_REGISTRY: dict[str, str] = {
     "gun_detection": "app.modules.gun_detection.module.GunDetectionModule",
     "cash_detection": "app.modules.cash_detection.module.CashDetectionModule",
+    "crowd_detection": "app.modules.crowd_detection.module.CrowdDetectionModule",
     # Future:
     # "staff_identification": "app.modules.staff_identification.module.StaffIdModule",
     # "work_supervision": "app.modules.work_supervision.module.WorkSupervisionModule",

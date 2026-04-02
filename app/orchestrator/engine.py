@@ -201,9 +201,25 @@ class Engine:
 
                 # ── Annotate output video ──────────────────────────
                 annotated = self._annotate_frame(
-                    frame, person_tracks, all_events, roi_manager=roi_manager, roles=context.roles
+                    frame, person_tracks, all_events,
+                    roi_manager=roi_manager, roles=context.roles,
+                    active_modules=cam_modules,
                 )
+
+                # Let modules with custom overlays draw on the frame
+                for module in cam_modules:
+                    if hasattr(module, 'annotate_frame'):
+                        annotated = module.annotate_frame(annotated, context)
+
                 out_writer.write(annotated)
+
+            # ── Export module artifacts ─────────────────────────────
+            for module in cam_modules:
+                if hasattr(module, 'export_artifacts'):
+                    try:
+                        module.export_artifacts(self.event_publisher.session_dir)
+                    except Exception as e:
+                        print(f"  [Engine] Error exporting {module.name} artifacts: {e}")
 
             # ── Cleanup camera ─────────────────────────────────────
             out_writer.release()
@@ -217,12 +233,15 @@ class Engine:
         events: list[AnalyticsEvent],
         roi_manager: ROIManager | None = None,
         roles: dict | None = None,
+        active_modules: list | None = None,
     ) -> np.ndarray:
         """Draw person boxes, zones, and event detections on the frame."""
         annotated = frame.copy()
 
-        # Draw ROIs if available
-        if roi_manager and roi_manager.has_zones:
+        # Draw ROIs only when zone-dependent modules are active
+        zone_modules = {"cash_detection", "gun_detection"}
+        active_names = {m.name for m in (active_modules or [])}
+        if roi_manager and roi_manager.has_zones and active_names & zone_modules:
             roi_manager.draw_zones(annotated, alpha=0.15)
 
         # Draw person bounding boxes

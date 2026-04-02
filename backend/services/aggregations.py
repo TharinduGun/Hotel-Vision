@@ -111,6 +111,9 @@ def build_summary(events: list[TrackingEvent]) -> DashboardSummary:
     # Compute uptime from cameras
     uptime = round((cameras_online / cameras_total) * 100, 1) if cameras_total > 0 else 0.0
 
+    # Count unique person tracks as footfall
+    unique_person_ids = set(e.trackId for e in people)
+
     return DashboardSummary(
         ts=_now(),
         cards={
@@ -121,6 +124,7 @@ def build_summary(events: list[TrackingEvent]) -> DashboardSummary:
             "incidentsToday": KPICard(value=incidents_today),
             "uptime": KPICard(value=uptime),
             "cashTransactions": KPICard(value=cash_transactions),
+            "peopleCounted": KPICard(value=len(unique_person_ids)),
         },
     )
 
