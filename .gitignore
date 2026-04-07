@@ -1,0 +1,37 @@
+ #Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+ #Data (not committed)
+data/employees/*
+data/employee_embeddings.pkl
+data/videos/*
+data/events/events.csv
+
+# Model weights
+models/*.pt
+
+# Outputs
+outputs/processed_video/*
+outputs/heatmaps/*
+outputs/reports/*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keep directory structure
+!data/employees/.gitkeep
+!data/videos/.gitkeep
+!data/events/.gitkeep
+!models/.gitkeep
+!outputs/**/.gitkeep

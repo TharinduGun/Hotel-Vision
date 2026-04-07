@@ -1,0 +1,12 @@
+ultralytics
+opencv-python
+numpy
+shapely
+matplotlib
+pandas
+websocket-client>=1.6.0
+fastapi
+uvicorn
+insightface
+onnxruntime
+supervision>=0.19.0
