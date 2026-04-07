@@ -1,0 +1,24 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+env/
+
+# YOLO model weights (large files)
+*.pt
+
+# Video files (too large for git)
+data/videos/
+
+# Output data
+data/outputs/
+
+# Log files
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
