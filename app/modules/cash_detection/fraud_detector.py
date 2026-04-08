@@ -36,6 +36,7 @@ class FraudDetector:
     ):
         self.register_wait_frames = int(register_wait_sec * fps)
         self.pocketing_window_frames = int(pocketing_window_sec * fps)
+        self.fps = fps
         
         # State tracking
         self.pending_exchanges = {} # { event_id: ExchangeEvent }
@@ -108,7 +109,7 @@ class FraudDetector:
                     self.resolved_exchanges.add(eid)
             else:
                 # Regular pocketing (no recent exchange tied directly)
-                 alerts.append(FraudAlert(
+                alerts.append(FraudAlert(
                     alert_type="CASH_POCKETED",
                     person_id=pkt.person_id,
                     timestamp=current_time,
@@ -138,7 +139,7 @@ class FraudDetector:
                         frame_idx=frame_idx,
                         confidence=0.75,
                         description=(f"Cashier {evt.cashier_id} engaged in an exchange "
-                                     f"but hand did not visit register within {self.register_wait_frames / 25.0}s.")
+                                     f"but hand did not visit register within {self.register_wait_frames / self.fps:.1f}s.")
                     ))
                 
                 expired_exchanges.append(eid)

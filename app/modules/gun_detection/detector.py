@@ -20,6 +20,8 @@ import numpy as np
 import torch
 from ultralytics import YOLO
 
+from app.shared.model_manager import model_manager
+
 
 @dataclass
 class GunDetection:
@@ -114,7 +116,7 @@ class GunDetector:
         """Load pose model on first use to avoid GPU overhead if unused."""
         if self._pose_model is None:
             print(f"[GunDetector] Loading pose model: {self._pose_model_path}")
-            self._pose_model = YOLO(self._pose_model_path)
+            self._pose_model = model_manager.get_model(self._pose_model_path, self.device)
         return self._pose_model
 
     # ── Public API ────────────────────────────────────────────────────
@@ -398,7 +400,6 @@ class GunDetector:
         """Release model and GPU memory."""
         del self.model
         if self._pose_model is not None:
-            del self._pose_model
             self._pose_model = None
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

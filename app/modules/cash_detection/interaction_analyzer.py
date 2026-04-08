@@ -35,12 +35,14 @@ class InteractionAnalyzer:
         fps: float = 25.0,
         required_interaction_frames: int = 25, # Was 5 (0.2s), now 25 (1.0s)
         cooldown_frames: int = 75, # Prevent spamming events
+        inferred_exchange_sec: float = 1.5,
     ):
         self.time_window_sec = time_window_sec
         self.fps = fps
         self.window_frames = int(time_window_sec * fps)
         self.required_interaction_frames = required_interaction_frames
         self.cooldown_frames = cooldown_frames
+        self.inferred_exchange_frames = int(fps * inferred_exchange_sec)
         
         # { (customer_id, cashier_id): deque([ {frame: idx, signals: set()} ]) }
         self.history = {}
@@ -105,9 +107,14 @@ class InteractionAnalyzer:
                 if cust_id in cust_near_counter:
                     current_signals[pair].add("CUSTOMER_NEAR_COUNTER")
                     
-                # Add cash detection signal
-                if len(cash_detections) > 0:
-                    current_signals[pair].add("CASH_DETECTED")
+                # Add cash detection signal ONLY if cash is spatially near
+                # either the customer or the cashier in this pair
+                if cash_detections:
+                    cash_near_pair = self._is_cash_near_pair(
+                        cash_detections, cust_id, cash_id, person_tracks
+                    )
+                    if cash_near_pair:
+                        current_signals[pair].add("CASH_DETECTED")
                     
         # 3. Update timeline and evaluate rules
         for pair, signals in current_signals.items():
@@ -139,9 +146,10 @@ class InteractionAnalyzer:
                             confidence=0.9,
                             reason=f"Hands interacted ({interaction_count} frames) + Cash detected"
                         ))
-                    elif interaction_count >= int(self.fps * 1.5): # e.g. 37 frames
+                        self.last_event_frame[pair] = frame_idx
+                    elif interaction_count >= self.inferred_exchange_frames:
                         # Interaction without explicit cash detection -> inferred exchange
-                        # We require a MUCH longer interaction (1.5s) if we don't see cash
+                        # We require a MUCH longer interaction if we don't see cash
                         events.append(ExchangeEvent(
                             customer_id=pair[0],
                             cashier_id=pair[1],
@@ -150,7 +158,54 @@ class InteractionAnalyzer:
                             confidence=0.7,
                             reason=f"Hands interacted ({interaction_count} frames), but no cash detected"
                         ))
-                    if events:
                         self.last_event_frame[pair] = frame_idx
                     
         return events
+
+    # ── Helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _is_cash_near_pair(
+        cash_detections,
+        cust_id: int,
+        cashier_id: int,
+        person_tracks: dict,
+        proximity_px: float = 200.0,
+    ) -> bool:
+        """
+        Check if ANY cash detection is spatially near either the customer
+        or the cashier in a given pair.
+
+        Args:
+            cash_detections: List of CashDetection objects.
+            cust_id: Customer person ID.
+            cashier_id: Cashier person ID.
+            person_tracks: { pid: {"bbox": [x1,y1,x2,y2], "cls": int} }
+            proximity_px: Max distance from a person's bbox center.
+
+        Returns:
+            True if at least one cash detection is near either person.
+        """
+        cust_bbox = person_tracks.get(cust_id, {}).get("bbox")
+        cash_bbox = person_tracks.get(cashier_id, {}).get("bbox")
+
+        if not cust_bbox and not cash_bbox:
+            return False
+
+        # Compute centers of each person
+        centers = []
+        if cust_bbox:
+            centers.append(((cust_bbox[0] + cust_bbox[2]) / 2,
+                            (cust_bbox[1] + cust_bbox[3]) / 2))
+        if cash_bbox:
+            centers.append(((cash_bbox[0] + cash_bbox[2]) / 2,
+                            (cash_bbox[1] + cash_bbox[3]) / 2))
+
+        for det in cash_detections:
+            cx, cy = det.center
+            for pcx, pcy in centers:
+                dist = ((cx - pcx) ** 2 + (cy - pcy) ** 2) ** 0.5
+                if dist <= proximity_px:
+                    return True
+
+        return False

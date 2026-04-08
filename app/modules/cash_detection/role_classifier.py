@@ -18,7 +18,7 @@ class RoleClassifier:
     """
 
     # Zone types that count as "staff areas"
-    STAFF_ZONE_TYPES = {"cashier"}
+    STAFF_ZONE_TYPES = {"cashier", "cash_register", "money_exchange"}
 
     def __init__(self, cashier_threshold=0.60):
         """

@@ -50,9 +50,26 @@ modules:
   cash_detection:
     enabled: true
     model_path: "pycode/models/cash_detector_v2/train_v2/weights/best.pt"
-    conf_threshold: 0.25
+    conf_threshold: 0.35
     fps: 25.0
     cameras: ["*"]
+    
+    # SAHI Integration
+    use_sahi: true
+    sahi_slice_width: 640
+    sahi_slice_height: 640
+    sahi_overlap_ratio: 0.25
+
+    # Cash tracker debounce (frames)
+    pickup_debounce: 8              # Frames of cash detection before CASH_PICKUP
+    deposit_debounce: 15            # Frames without cash before deposit/pocket
+    zone_alert_cooldown: 30         # Cooldown between zone violation alerts
+    # Temporal filter (flicker suppression)
+    temporal_min_frames: 2          # Min frames with cash to confirm
+    temporal_window: 5              # Sliding window size
+    # Interaction analyzer
+    required_interaction_frames: 25 # 1.0s of hand proximity at 25fps
+    interaction_cooldown_frames: 75 # Prevent event spam
 
   crowd_detection:
     enabled: true

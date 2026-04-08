@@ -60,3 +60,6 @@ pycode/models/**/*.csv
 resources/datasets/
 
 # Note: pycode/models/ contains trained weights tracked via Git LFS
+
+# Temporary Local Clones
+temp_repos/

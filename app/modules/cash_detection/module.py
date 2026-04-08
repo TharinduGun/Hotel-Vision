@@ -1,42 +1,46 @@
 """
 Cash Detection Module — AnalyticsModule Implementation
 ========================================================
-Wraps the existing 6-layer cash detection and interaction analysis
-pipeline into the new modular architecture.
+Wraps the 6-layer cash detection and interaction analysis
+pipeline into the modular architecture.
 
-Layers:
-  1. Cash Detection (cash_detector.py → YOLOv8)
-  2. Cash-Person Association (cash_detector.associate_with_persons)
-  3. Hand Detection & Interaction (hand_detector.py → YOLOv8-pose)
-  4. Cash State Tracking (cash_tracker.py → state machine)
-  5. Interaction Analysis (interaction_analyzer.py → signal fusion)
-  6. Fraud Detection (fraud_detector.py → business rules)
+Pipeline (executed in order):
+  Layer 1: Cash Detection        — YOLOv8 detects cash objects
+  Layer 2: Cash-Person Association — spatial overlap mapping
+  Layer 3: Role Classification   — zone-based cashier/customer labelling
+  Layer 4: Cash State Tracking   — per-person state machine (pickup/deposit/pocket)
+  Layer 5: Hand Detection        — YOLOv8-pose wrist keypoints + interaction signals
+  Layer 6: Interaction Analysis  — multi-signal fusion for exchange detection
+  Layer 7: Fraud Detection       — business rules over timeline
 
-This module delegates to the original utility classes, converting
-their outputs into AnalyticsEvents for the orchestrator.
+This module delegates to utility classes and converts their outputs
+into AnalyticsEvents for the orchestrator.
 """
 
 from __future__ import annotations
 
 import os
-import sys
+import logging
 from pathlib import Path
 
 from app.contracts.base_module import AnalyticsModule, FrameContext
 from app.contracts.event_schema import AnalyticsEvent, Severity
 
+logger = logging.getLogger(__name__)
+
+from .config import CASH_DETECTION_DEFAULTS
 from .cash_detector import CashDetector
 from .cash_tracker import CashTracker, CashEventType
 from .hand_detector import HandDetector
 from .interaction_analyzer import InteractionAnalyzer
 from .fraud_detector import FraudDetector
 from .role_classifier import RoleClassifier
+from .temporal_filter import CashTemporalFilter
 
 
 # ── Event type → severity mapping ─────────────────────────────────────
 
 CASH_EVENT_SEVERITY = {
-    # Cash tracker events
     CashEventType.CASH_PICKUP: Severity.MEDIUM,
     CashEventType.CASH_DEPOSIT: Severity.LOW,
     CashEventType.CASH_HANDOVER: Severity.MEDIUM,
@@ -46,20 +50,27 @@ CASH_EVENT_SEVERITY = {
 
 FRAUD_SEVERITY = {
     "CASH_POCKET": Severity.HIGH,
+    "CASH_POCKETED": Severity.HIGH,
+    "POSSIBLE_POCKETING": Severity.HIGH,
     "UNREGISTERED_CASH_HANDLING": Severity.HIGH,
+    "UNREGISTERED_CASH": Severity.HIGH,
     "CASH_HANDOVER_SUSPICIOUS": Severity.HIGH,
     "CASH_OUTSIDE_ZONE": Severity.MEDIUM,
 }
 
 
+def _cfg(config: dict, key: str):
+    """Get a config value, falling back to CASH_DETECTION_DEFAULTS."""
+    return config.get(key, CASH_DETECTION_DEFAULTS.get(key))
+
+
 class CashDetectionModule(AnalyticsModule):
     """
-    Wraps the existing 6-layer cash handling & fraud detection pipeline
+    Wraps the 7-layer cash handling & fraud detection pipeline
     as an AnalyticsModule.
 
-    This module manages its own internal state (cash tracker, role classifier,
-    interaction analyzer, etc.) and converts all outputs to AnalyticsEvent
-    objects for the orchestrator.
+    All tunable parameters come from system_config.yaml → cash_detection
+    section, with fallbacks defined in config.py.
     """
 
     def __init__(self):
@@ -69,6 +80,7 @@ class CashDetectionModule(AnalyticsModule):
         self._interaction_analyzer: InteractionAnalyzer | None = None
         self._fraud_detector: FraudDetector | None = None
         self._role_classifier: RoleClassifier | None = None
+        self._temporal_filter: CashTemporalFilter | None = None
         self._config: dict = {}
         self._cameras: list[str] = ["*"]
 
@@ -78,20 +90,17 @@ class CashDetectionModule(AnalyticsModule):
 
     def initialize(self, config: dict) -> None:
         """
-        Initialize all 6 layers of the cash detection pipeline.
+        Initialize all layers of the cash detection pipeline.
 
-        Config keys:
-            model_path: Path to trained cash detection YOLO model
-            conf_threshold: Confidence threshold for cash detection
-            cameras: List of camera IDs to process (default: all)
-            fps: Frame rate for time-based calculations
+        Config is merged with CASH_DETECTION_DEFAULTS so that every
+        parameter has a sensible fallback.
         """
         self._config = config
-        self._cameras = config.get("cameras", ["*"])
+        self._cameras = _cfg(config, "cameras")
 
-        model_path = config.get("model_path", "")
-        conf_threshold = config.get("conf_threshold", 0.25)
-        fps = config.get("fps", 25.0)
+        model_path = _cfg(config, "model_path")
+        conf_threshold = _cfg(config, "conf_threshold")
+        fps = _cfg(config, "fps")
 
         import torch
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -107,34 +116,77 @@ class CashDetectionModule(AnalyticsModule):
             model_path=model_path,
             conf_threshold=conf_threshold,
             device=device,
+            hand_region_ratio=_cfg(config, "hand_region_ratio"),
+            hand_margin_px=_cfg(config, "hand_margin_px"),
+            exchange_gap_px=_cfg(config, "exchange_gap_px"),
+            counter_person_radius_px=_cfg(config, "counter_person_radius_px"),
+            min_area_px=_cfg(config, "min_area_px"),
+            max_area_ratio=_cfg(config, "max_area_ratio"),
+            min_aspect_ratio=_cfg(config, "min_aspect_ratio"),
+            max_aspect_ratio=_cfg(config, "max_aspect_ratio"),
+            hand_reach_px=_cfg(config, "hand_reach_px"),
+            exchange_vertical_slack_px=_cfg(config, "exchange_vertical_slack_px"),
+            near_hands_offset_px=_cfg(config, "near_hands_offset_px"),
+            iou_weight=_cfg(config, "iou_weight"),
+            center_inside_weight=_cfg(config, "center_inside_weight"),
+            near_hands_weight=_cfg(config, "near_hands_weight"),
+            use_sahi=_cfg(config, "use_sahi"),
+            sahi_slice_w=_cfg(config, "sahi_slice_width"),
+            sahi_slice_h=_cfg(config, "sahi_slice_height"),
+            sahi_overlap=_cfg(config, "sahi_overlap_ratio"),
         )
-        print(f"[CashModule] Layer 1: Cash Detector loaded ({model_path})")
+        logger.info(f"Layer 1: Cash Detector loaded ({model_path})")
 
-        # ── Layer 2: Cash Tracker (state machine) ──────────────────
+        # ── Layer 2: Temporal Filter (flicker suppression) ────────
+        self._temporal_filter = CashTemporalFilter(
+            min_frames=_cfg(config, "temporal_min_frames"),
+            window_size=_cfg(config, "temporal_window"),
+        )
+        logger.info("Layer 2: Temporal Filter initialized")
+
+        # ── Layer 3: Role Classifier ──────────────────────────────
+        self._role_classifier = RoleClassifier(
+            cashier_threshold=_cfg(config, "cashier_threshold"),
+        )
+        logger.info("Layer 3: Role Classifier initialized")
+
+        # ── Layer 4: Cash Tracker (state machine) ─────────────────
         self._cash_tracker = CashTracker(
-            pickup_debounce=8,
-            deposit_debounce=15,
-            zone_alert_cooldown=30,
+            pickup_debounce=_cfg(config, "pickup_debounce"),
+            deposit_debounce=_cfg(config, "deposit_debounce"),
+            zone_alert_cooldown=_cfg(config, "zone_alert_cooldown"),
         )
-        print("[CashModule] Layer 2: Cash Tracker initialized")
+        logger.info("Layer 4: Cash Tracker initialized")
 
-        # ── Layer 3: Hand Detector (YOLOv8-pose) ─────────────────
-        self._hand_detector = HandDetector(device=device)
-        print("[CashModule] Layer 3: Hand Detector loaded")
+        # ── Layer 5: Hand Detector (YOLOv8-pose) ─────────────────
+        self._hand_detector = HandDetector(
+            model_path=_cfg(config, "pose_model_path"),
+            device=device,
+            keypoint_conf_threshold=_cfg(config, "keypoint_conf_threshold"),
+            interaction_threshold_px=_cfg(config, "interaction_threshold_px"),
+            iou_threshold=_cfg(config, "iou_threshold"),
+        )
+        logger.info("Layer 5: Hand Detector loaded")
 
-        # ── Layer 4: Role Classifier ──────────────────────────────
-        self._role_classifier = RoleClassifier()
-        print("[CashModule] Layer 4: Role Classifier initialized")
+        # ── Layer 6: Interaction Analyzer ─────────────────────────
+        self._interaction_analyzer = InteractionAnalyzer(
+            time_window_sec=_cfg(config, "interaction_time_window_sec"),
+            fps=fps,
+            required_interaction_frames=_cfg(config, "required_interaction_frames"),
+            cooldown_frames=_cfg(config, "interaction_cooldown_frames"),
+            inferred_exchange_sec=_cfg(config, "inferred_exchange_sec"),
+        )
+        logger.info("Layer 6: Interaction Analyzer initialized")
 
-        # ── Layer 5: Interaction Analyzer ─────────────────────────
-        self._interaction_analyzer = InteractionAnalyzer(fps=fps)
-        print("[CashModule] Layer 5: Interaction Analyzer initialized")
+        # ── Layer 7: Fraud Detector ──────────────────────────────
+        self._fraud_detector = FraudDetector(
+            register_wait_sec=_cfg(config, "register_wait_sec"),
+            pocketing_window_sec=_cfg(config, "pocketing_window_sec"),
+            fps=fps,
+        )
+        logger.info("Layer 7: Fraud Detector initialized")
 
-        # ── Layer 6: Fraud Detector ──────────────────────────────
-        self._fraud_detector = FraudDetector(fps=fps)
-        print("[CashModule] Layer 6: Fraud Detector initialized")
-
-        print(f"[CashModule] All 6 layers ready (cameras={self._cameras})")
+        logger.info(f"All layers ready (cameras={self._cameras})")
 
     def applicable_cameras(self) -> list[str]:
         return self._cameras
@@ -145,7 +197,7 @@ class CashDetectionModule(AnalyticsModule):
         context: FrameContext,
     ) -> list[AnalyticsEvent]:
         """
-        Run the full 6-layer cash detection pipeline on one frame.
+        Run the full cash detection pipeline on one frame.
 
         Returns AnalyticsEvents for every cash event, exchange event,
         and fraud alert detected in this frame.
@@ -163,13 +215,25 @@ class CashDetectionModule(AnalyticsModule):
             roi_manager=context.roi_manager,
         )
 
-        # ── Layer 2: Cash-Person Association ───────────────────────
+        # ── Layer 2: Cash-Person Association + Temporal Filter ─────
         cash_associations = self._cash_detector.associate_with_persons(
             cash_detections, person_tracks
         )
 
-        # ── Update role classifier ─────────────────────────────────
-        if context.roi_manager and hasattr(context.roi_manager, 'get_zone_with_type'):
+        # Apply temporal consistency filter to suppress flicker
+        if self._temporal_filter is not None:
+            active_persons = {
+                pid for pid, data in person_tracks.items()
+                if data.get("cls") == 0
+            }
+            persons_with_cash = set(cash_associations.get("assigned", {}).keys())
+            self._temporal_filter.update(active_persons, persons_with_cash)
+            cash_associations = self._temporal_filter.filter_associations(
+                cash_associations
+            )
+
+        # ── Layer 3: Role Classification ───────────────────────────
+        if context.roi_manager:
             for tid, tdata in person_tracks.items():
                 if tdata.get("cls") == 0:
                     cx = (tdata["bbox"][0] + tdata["bbox"][2]) / 2
@@ -177,16 +241,15 @@ class CashDetectionModule(AnalyticsModule):
                     zone_name, zone_type = context.roi_manager.get_zone_with_type(cx, cy)
                     self._role_classifier.update(tid, zone_name, zone_type)
 
-        # Build roles dict
         current_roles = {
             tid: self._role_classifier.get_role(tid)
             for tid, tdata in person_tracks.items()
             if tdata.get("cls") == 0
         }
-        # Push roles back to shared context for orchestrator drawing
+        # Push roles to shared context for orchestrator drawing
         context.roles.update(current_roles)
 
-        # ── Layer 3: Cash State Tracking ───────────────────────────
+        # ── Layer 4: Cash State Tracking ───────────────────────────
         cash_events = []
         if self._cash_tracker is not None:
             cash_events = self._cash_tracker.update(
@@ -197,7 +260,6 @@ class CashDetectionModule(AnalyticsModule):
                 roi_manager=context.roi_manager,
             )
 
-        # Convert cash events to AnalyticsEvents
         for ce in cash_events:
             severity = CASH_EVENT_SEVERITY.get(ce.event_type, Severity.MEDIUM)
             person_bbox = person_tracks.get(ce.person_id, {}).get("bbox", [0, 0, 0, 0])
@@ -207,22 +269,31 @@ class CashDetectionModule(AnalyticsModule):
                 camera_id=context.camera_id,
                 timestamp=context.timestamp,
                 event_type=ce.event_type.value,
-                confidence=ce.confidence if hasattr(ce, 'confidence') else 0.7,
+                confidence=ce.confidence,
                 bbox=person_bbox,
                 severity=severity,
                 frame_idx=context.frame_idx,
                 person_id=ce.person_id,
                 metadata={
-                    "zone": ce.zone if hasattr(ce, 'zone') else "",
+                    "zone": ce.zone,
                     "role": current_roles.get(ce.person_id, "Unknown"),
-                    "partner_id": ce.partner_id if hasattr(ce, 'partner_id') else None,
+                    "partner_id": ce.partner_id,
                 },
             ))
 
-        # ── Layer 4: Hand Detection & Interaction ──────────────────
+        # ── Layer 5: Hand Detection & Interaction ──────────────────
         person_hands = {}
         hand_interactions = []
-        if self._hand_detector:
+        
+        # D5 Performance Optimization: Only run YOLO pose if strictly needed
+        has_customer = "Customer" in current_roles.values()
+        has_cashier = "Cashier" in current_roles.values()
+        has_cash_activity = len(cash_detections) > 0 or len(cash_events) > 0
+        has_pending_fraud = len(self._fraud_detector.pending_exchanges) > 0 if self._fraud_detector else False
+        
+        run_hand_pose = has_cash_activity or has_pending_fraud or (has_customer and has_cashier)
+
+        if self._hand_detector and run_hand_pose:
             person_hands, hand_interactions = self._hand_detector.detect_and_analyze(
                 frame=frame,
                 person_tracks=person_tracks,
@@ -231,7 +302,7 @@ class CashDetectionModule(AnalyticsModule):
                 roi_manager=context.roi_manager,
             )
 
-        # ── Layer 5: Interaction Analysis ──────────────────────────
+        # ── Layer 6: Interaction Analysis ──────────────────────────
         exchange_events = []
         if self._interaction_analyzer:
             exchange_events = self._interaction_analyzer.update(
@@ -244,24 +315,24 @@ class CashDetectionModule(AnalyticsModule):
                 roi_manager=context.roi_manager,
             )
 
-        # Convert exchange events to AnalyticsEvents
         for ex in exchange_events:
             events.append(AnalyticsEvent(
                 module=self.name,
                 camera_id=context.camera_id,
                 timestamp=context.timestamp,
                 event_type="cash_exchange",
-                confidence=ex.confidence if hasattr(ex, 'confidence') else 0.6,
-                bbox=[0, 0, 0, 0],  # Exchange is between two people
+                confidence=ex.confidence,
+                bbox=[0, 0, 0, 0],
                 severity=Severity.MEDIUM,
                 frame_idx=context.frame_idx,
                 metadata={
-                    "reason": ex.reason if hasattr(ex, 'reason') else "",
-                    "persons": [ex.person_a, ex.person_b] if hasattr(ex, 'person_a') else [],
+                    "reason": ex.reason,
+                    "customer_id": ex.customer_id,
+                    "cashier_id": ex.cashier_id,
                 },
             ))
 
-        # ── Layer 6: Fraud Detection ──────────────────────────────
+        # ── Layer 7: Fraud Detection ──────────────────────────────
         fraud_alerts = []
         if self._fraud_detector:
             fraud_alerts = self._fraud_detector.evaluate(
@@ -274,24 +345,22 @@ class CashDetectionModule(AnalyticsModule):
                 roi_manager=context.roi_manager,
             )
 
-        # Convert fraud alerts to AnalyticsEvents
         for alert in fraud_alerts:
-            alert_type = alert.alert_type if hasattr(alert, 'alert_type') else "fraud"
-            severity = FRAUD_SEVERITY.get(alert_type, Severity.HIGH)
+            severity = FRAUD_SEVERITY.get(alert.alert_type, Severity.HIGH)
 
             events.append(AnalyticsEvent(
                 module=self.name,
                 camera_id=context.camera_id,
                 timestamp=context.timestamp,
-                event_type=f"fraud_{alert_type.lower()}",
-                confidence=alert.confidence if hasattr(alert, 'confidence') else 0.8,
+                event_type=f"fraud_{alert.alert_type.lower()}",
+                confidence=alert.confidence,
                 bbox=[0, 0, 0, 0],
                 severity=severity,
                 frame_idx=context.frame_idx,
-                person_id=alert.person_id if hasattr(alert, 'person_id') else None,
+                person_id=alert.person_id,
                 metadata={
-                    "description": alert.description if hasattr(alert, 'description') else "",
-                    "alert_type": alert_type,
+                    "description": alert.description,
+                    "alert_type": alert.alert_type,
                 },
             ))
 
@@ -306,8 +375,9 @@ class CashDetectionModule(AnalyticsModule):
         self._hand_detector = None
         self._interaction_analyzer = None
         self._fraud_detector = None
+        self._temporal_filter = None
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        print("[CashModule] Shut down (all 6 layers released)")
+        logger.info("Shut down (all layers released)")

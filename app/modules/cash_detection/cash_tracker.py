@@ -16,6 +16,9 @@ Integration:
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ── Enums & Data Classes ──────────────────────────────────────────────
@@ -208,7 +211,7 @@ class CashTracker:
                             bbox_snapshot=cash_bbox_str,
                         )
                         frame_events.append(event)
-                        print(f"  [Cash] {event}")
+                        logger.info(f"  [Cash] {event}")
                 else:
                     profile.frames_without_cash += 1
                     # Grace period: allow 2 frames of missing cash before resetting the pickup counter
@@ -238,7 +241,7 @@ class CashTracker:
                             )
                             frame_events.append(event)
                             self._zone_alert_cooldowns[pid] = frame_idx
-                            print(f"  [Cash] {event}")
+                            logger.info(f"  [Cash] {event}")
 
                 else:
                     profile.frames_without_cash += 1
@@ -285,7 +288,7 @@ class CashTracker:
                             )
 
                         frame_events.append(event)
-                        print(f"  [Cash] {event}")
+                        logger.info(f"  [Cash] {event}")
 
                         # Reset state
                         profile.state = CashState.NO_CASH

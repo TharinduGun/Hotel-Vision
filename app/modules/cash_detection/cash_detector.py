@@ -16,9 +16,14 @@ Context-Aware Filtering:
 """
 
 import os
+import logging
 import cv2
 import numpy as np
 from ultralytics import YOLO
+
+from .utils import compute_iou
+
+logger = logging.getLogger(__name__)
 
 
 class CashDetection:
@@ -87,6 +92,18 @@ class CashDetector:
         max_area_ratio=0.10,      # Reject boxes covering >10% of frame
         min_aspect_ratio=1.0,     # Minimum aspect ratio (cash can look square when folded)
         max_aspect_ratio=8.0,     # Maximum aspect ratio (long/short side)
+        # Contextual Tuning
+        hand_reach_px=30,
+        exchange_vertical_slack_px=100,
+        near_hands_offset_px=50,
+        iou_weight=0.5,
+        center_inside_weight=0.4,
+        near_hands_weight=0.3,
+        # SAHI options
+        use_sahi=False,
+        sahi_slice_w=640,
+        sahi_slice_h=640,
+        sahi_overlap=0.25,
     ):
         """
         Args:
@@ -117,8 +134,8 @@ class CashDetector:
 
         # Contextual filter params
         self.hand_region_ratio = hand_region_ratio
-        self.hand_margin_px = 100   # Was 60
-        self.exchange_gap_px = 150  # Was 100
+        self.hand_margin_px = hand_margin_px
+        self.exchange_gap_px = exchange_gap_px
         self.counter_person_radius_px = counter_person_radius_px
 
         # Geometric sanity params
@@ -126,12 +143,34 @@ class CashDetector:
         self.max_area_ratio = max_area_ratio
         self.min_aspect_ratio = min_aspect_ratio
         self.max_aspect_ratio = max_aspect_ratio
+        
+        self.hand_reach_px = hand_reach_px
+        self.exchange_vertical_slack_px = exchange_vertical_slack_px
+        self.near_hands_offset_px = near_hands_offset_px
+        self.iou_weight = iou_weight
+        self.center_inside_weight = center_inside_weight
+        self.near_hands_weight = near_hands_weight
 
-        print(f"[CashDetector] Loaded model: {model_path}")
-        print(f"[CashDetector] Classes: {self._class_names}")
-        print(f"[CashDetector] Confidence threshold: {conf_threshold}")
-        print(f"[CashDetector] Context filters: hand_region={hand_region_ratio:.0%}, "
-              f"hand_margin={hand_margin_px}px, exchange_gap={exchange_gap_px}px")
+        self.use_sahi = use_sahi
+        self.sahi_slice_w = sahi_slice_w
+        self.sahi_slice_h = sahi_slice_h
+        self.sahi_overlap = sahi_overlap
+        self._sahi_model = None
+
+        if self.use_sahi:
+            from sahi import AutoDetectionModel
+            self._sahi_model = AutoDetectionModel.from_pretrained(
+                model_type="yolov8",
+                model_path=model_path,
+                confidence_threshold=conf_threshold,
+                device=device,
+            )
+
+        logger.info(f"Loaded model: {model_path}")
+        logger.info(f"Classes: {self._class_names}")
+        logger.info(f"Confidence threshold: {conf_threshold}")
+        logger.info(f"Context filters: hand_region={hand_region_ratio:.0%}, "
+                    f"hand_margin={hand_margin_px}px, exchange_gap={exchange_gap_px}px")
 
     def detect(self, frame, person_tracks=None, roi_manager=None):
         """
@@ -147,30 +186,51 @@ class CashDetector:
             list[CashDetection]: Detected cash objects that pass contextual filters.
                 Empty list if none found.
         """
-        results = self.model.predict(
-            source=frame,
-            conf=self.conf_threshold,
-            classes=[self.CASH_CLASS_ID],  # Only detect cash, not persons
-            device=self.device,
-            verbose=False,
-            imgsz=640,
-        )
-
         raw_detections = []
-        if results and results[0].boxes is not None and len(results[0].boxes) > 0:
-            boxes = results[0].boxes
-            for i in range(len(boxes)):
-                bbox = boxes.xyxy[i].cpu().tolist()
-                conf = float(boxes.conf[i].cpu())
-                cls_id = int(boxes.cls[i].cpu())
-                cls_name = self._class_names.get(cls_id, "Cash")
 
-                raw_detections.append(CashDetection(
-                    bbox=bbox,
-                    confidence=conf,
-                    class_name=cls_name,
-                    class_id=cls_id,
-                ))
+        if self.use_sahi and self._sahi_model is not None:
+            from sahi.predict import get_sliced_prediction
+            results = get_sliced_prediction(
+                frame,
+                self._sahi_model,
+                slice_height=self.sahi_slice_h,
+                slice_width=self.sahi_slice_w,
+                overlap_height_ratio=self.sahi_overlap,
+                overlap_width_ratio=self.sahi_overlap,
+            )
+            for obj in results.object_prediction_list:
+                if obj.category.id == self.CASH_CLASS_ID:
+                    bbox = [obj.bbox.minx, obj.bbox.miny, obj.bbox.maxx, obj.bbox.maxy]
+                    raw_detections.append(CashDetection(
+                        bbox=bbox,
+                        confidence=obj.score.value,
+                        class_name=self.CASH_CLASS_NAME,
+                        class_id=self.CASH_CLASS_ID
+                    ))
+        else:
+            results = self.model.predict(
+                source=frame,
+                conf=self.conf_threshold,
+                classes=[self.CASH_CLASS_ID],  # Only detect cash, not persons
+                device=self.device,
+                verbose=False,
+                imgsz=640,
+            )
+
+            if results and results[0].boxes is not None and len(results[0].boxes) > 0:
+                boxes = results[0].boxes
+                for i in range(len(boxes)):
+                    bbox = boxes.xyxy[i].cpu().tolist()
+                    conf = float(boxes.conf[i].cpu())
+                    cls_id = int(boxes.cls[i].cpu())
+                    cls_name = self._class_names.get(cls_id, "Cash")
+
+                    raw_detections.append(CashDetection(
+                        bbox=bbox,
+                        confidence=conf,
+                        class_name=cls_name,
+                        class_id=cls_id,
+                    ))
 
         if not raw_detections:
             return []
@@ -272,7 +332,7 @@ class CashDetector:
             hand_top = py1 + person_h * (1.0 - self.hand_region_ratio)
             hand_left = px1 - self.hand_margin_px
             hand_right = px2 + self.hand_margin_px
-            hand_bottom = py2 + 30  # small extension below person bbox (reaching down)
+            hand_bottom = py2 + self.hand_reach_px  # small extension below person bbox (reaching down)
 
             # Check if cash bbox overlaps with the hand region
             overlap_x = cash_x1 < hand_right and cash_x2 > hand_left
@@ -368,8 +428,8 @@ class CashDetector:
                 # Allow some vertical slack if persons don't overlap vertically
                 if vert_top > vert_bottom:
                     vert_mid = (max(a_top, b_top) + min(a_bottom, b_bottom)) / 2
-                    vert_top = vert_mid - 100
-                    vert_bottom = vert_mid + 100
+                    vert_top = vert_mid - self.exchange_vertical_slack_px
+                    vert_bottom = vert_mid + self.exchange_vertical_slack_px
 
                 if gap_left <= cx <= gap_right and vert_top <= cy <= vert_bottom:
                     return True
@@ -417,7 +477,7 @@ class CashDetector:
 
             for pid, pdata in persons.items():
                 # Method 1: IOU overlap
-                iou = self._compute_iou(cash.bbox, pdata["bbox"])
+                iou = compute_iou(cash.bbox, pdata["bbox"])
 
                 # Method 2: Check if cash center is inside person bbox
                 cx, cy = cash.center
@@ -427,14 +487,14 @@ class CashDetector:
                 # Method 3: Proximity — is cash near the person's hands?
                 # (lower 60% of person bbox is where hands typically are)
                 hand_region_y = py1 + (py2 - py1) * 0.4  # Below 40% from top
-                near_hands = (cy >= hand_region_y and px1 - 50 <= cx <= px2 + 50)
+                near_hands = (cy >= hand_region_y and px1 - self.near_hands_offset_px <= cx <= px2 + self.near_hands_offset_px)
 
                 # Score: weighted combination
-                score = iou * 0.5
+                score = iou * self.iou_weight
                 if center_inside:
-                    score += 0.4
+                    score += self.center_inside_weight
                 if near_hands:
-                    score += 0.3
+                    score += self.near_hands_weight
 
                 if score > best_score:
                     best_score = score
@@ -489,20 +549,3 @@ class CashDetector:
 
         return frame
 
-    @staticmethod
-    def _compute_iou(box1, box2):
-        """Compute Intersection over Union between two boxes [x1,y1,x2,y2]."""
-        x1 = max(box1[0], box2[0])
-        y1 = max(box1[1], box2[1])
-        x2 = min(box1[2], box2[2])
-        y2 = min(box1[3], box2[3])
-
-        if x1 >= x2 or y1 >= y2:
-            return 0.0
-
-        inter = (x2 - x1) * (y2 - y1)
-        area1 = max((box1[2] - box1[0]) * (box1[3] - box1[1]), 1e-6)
-        area2 = max((box2[2] - box2[0]) * (box2[3] - box2[1]), 1e-6)
-        union = area1 + area2 - inter
-
-        return inter / union if union > 0 else 0.0

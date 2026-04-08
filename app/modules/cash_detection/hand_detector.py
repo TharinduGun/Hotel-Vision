@@ -18,6 +18,13 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+from app.shared.model_manager import model_manager
+import logging
+
+from .utils import compute_iou
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class HandInteraction:
@@ -50,6 +57,7 @@ class HandDetector:
         device="cuda",
         keypoint_conf_threshold=0.3,
         interaction_threshold_px=90, # Strict distance (was 150)
+        iou_threshold: float = 0.3,
     ):
         """
         Args:
@@ -57,12 +65,14 @@ class HandDetector:
             device: 'cuda' or 'cpu'
             keypoint_conf_threshold: Minimum confidence for a wrist keypoint to be valid
             interaction_threshold_px: Max distance between hands to count as an interaction
+            iou_threshold: Minimum IOU to match pose detection to a person track
         """
-        self.model = YOLO(model_path)
+        self.model = model_manager.get_model(model_path, device)
         self.device = device
         self.keypoint_conf_threshold = keypoint_conf_threshold
         self.interaction_threshold_px = interaction_threshold_px
-        print(f"[HandDetector] Loaded pose model: {model_path} on {device}")
+        self.iou_threshold = iou_threshold
+        logger.info(f"Loaded pose model: {model_path} on {device}")
 
     def detect_and_analyze(
         self,
@@ -113,11 +123,11 @@ class HandDetector:
             
             # Find which tracked person this matches
             best_pid = None
-            best_iou = 0.3  # Min IOU threshold
+            best_iou = self.iou_threshold  # Min IOU threshold
 
             for pid, track_data in person_tracks.items():
                 track_box = track_data["bbox"]
-                iou = self._compute_iou(pose_box, track_box)
+                iou = compute_iou(pose_box, track_box)
                 if iou > best_iou:
                     best_iou = iou
                     best_pid = pid
@@ -232,20 +242,3 @@ class HandDetector:
             label = f"Interacting ({int(ix.distance_px)}px)"
             cv2.putText(frame, label, (mx - 40, my - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-    @staticmethod
-    def _compute_iou(box1, box2):
-        """Compute Intersection over Union between two boxes [x1,y1,x2,y2]."""
-        x1 = max(box1[0], box2[0])
-        y1 = max(box1[1], box2[1])
-        x2 = min(box1[2], box2[2])
-        y2 = min(box1[3], box2[3])
-
-        if x1 >= x2 or y1 >= y2:
-            return 0.0
-
-        inter = (x2 - x1) * (y2 - y1)
-        area1 = max((box1[2] - box1[0]) * (box1[3] - box1[1]), 1e-6)
-        area2 = max((box2[2] - box2[0]) * (box2[3] - box2[1]), 1e-6)
-        union = area1 + area2 - inter
-
-        return inter / union if union > 0 else 0.0
