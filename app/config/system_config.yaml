@@ -49,23 +49,29 @@ modules:
 
   cash_detection:
     enabled: true
-    model_path: "pycode/models/cash_detector_v2/train_v2/weights/best.pt"
-    conf_threshold: 0.35
+    model_path: "pycode/models/cash_detector_v3/train/weights/best.pt"
+    conf_threshold: 0.55            # ↑ Was 0.35 — reject low-confidence FPs (Phase 0A band-aid)
     fps: 25.0
     cameras: ["*"]
     
     # SAHI Integration
-    use_sahi: true
+    use_sahi: false
     sahi_slice_width: 640
     sahi_slice_height: 640
     sahi_overlap_ratio: 0.25
 
+    # Contextual filter tightening (Phase 0A band-aid)
+    hand_region_ratio: 0.35         # ↓ Was 0.50 — only bottom 35% of person bbox (actual hand area)
+    hand_margin_px: 30              # ↓ Was 60 — tighter horizontal margin
+    min_area_px: 800                # ↑ Was 400 — reject small hand fragments
+    max_area_ratio: 0.05            # ↓ Was 0.10 — cash can't cover 5% of a 1080p frame
+
     # Cash tracker debounce (frames)
-    pickup_debounce: 8              # Frames of cash detection before CASH_PICKUP
+    pickup_debounce: 15             # ↑ Was 8 — require 15 consecutive frames (~0.6s at 25fps)
     deposit_debounce: 15            # Frames without cash before deposit/pocket
     zone_alert_cooldown: 30         # Cooldown between zone violation alerts
     # Temporal filter (flicker suppression)
-    temporal_min_frames: 2          # Min frames with cash to confirm
+    temporal_min_frames: 4          # ↑ Was 2 — need 4 out of 5 frames to confirm
     temporal_window: 5              # Sliding window size
     # Interaction analyzer
     required_interaction_frames: 25 # 1.0s of hand proximity at 25fps

@@ -9,25 +9,25 @@ so that adjustments don't require hunting through 5+ files.
 CASH_DETECTION_DEFAULTS = {
     # ── General ────────────────────────────────────────────────────────
     "enabled": True,
-    "model_path": "pycode/models/cash_detector_v2/train_v2/weights/best.pt",
-    "conf_threshold": 0.35,
+    "model_path": "pycode/models/cash_detector_v3/train/weights/best.pt",
+    "conf_threshold": 0.55,          # ↑ Was 0.35 (Phase 0A band-aid)
     "fps": 25.0,
     "cameras": ["*"],
 
-    # SAHI Slicing
-    "use_sahi": False,
+    # ── SAHI (Slicing Aided Hyper Inference) ───────────────────────────
+    "use_sahi": False,               # Disabled by default for performance
     "sahi_slice_width": 640,
     "sahi_slice_height": 640,
     "sahi_overlap_ratio": 0.25,
 
     # ── Cash Detector (Layer 1) — context-aware filtering ─────────────
-    "hand_region_ratio": 0.50,       # Lower 50% of person bbox = hand region
-    "hand_margin_px": 60,            # Horizontal margin beyond person bbox for hands
+    "hand_region_ratio": 0.35,       # ↓ Was 0.50 — only bottom 35% (Phase 0A)
+    "hand_margin_px": 30,            # ↓ Was 60 — tighter hand margin (Phase 0A)
     "exchange_gap_px": 100,          # Max gap between two persons for exchange context
     "counter_person_radius_px": 250, # Max distance from any person for counter rule
     # Geometric sanity
-    "min_area_px": 400,              # Reject tiny noise blobs
-    "max_area_ratio": 0.10,          # Reject boxes covering >10% of frame
+    "min_area_px": 800,              # ↑ Was 400 — reject small hand fragments (Phase 0A)
+    "max_area_ratio": 0.05,          # ↓ Was 0.10 — cash can't cover 5% of frame (Phase 0A)
     "min_aspect_ratio": 1.0,         # Minimum aspect ratio (long/short)
     "max_aspect_ratio": 8.0,         # Maximum aspect ratio
 
@@ -42,7 +42,7 @@ CASH_DETECTION_DEFAULTS = {
     "near_hands_weight": 0.3,
 
     # ── Cash Tracker (Layer 3) — state machine debounce ───────────────
-    "pickup_debounce": 8,            # Frames cash must be seen before CASH_PICKUP
+    "pickup_debounce": 15,           # ↑ Was 8 — 15 frames = ~0.6s at 25fps (Phase 0A)
     "deposit_debounce": 15,          # Frames cash must be absent before CASH_DEPOSIT
     "zone_alert_cooldown": 30,       # Frames between repeated zone violation alerts
 
@@ -66,6 +66,6 @@ CASH_DETECTION_DEFAULTS = {
     "pocketing_window_sec": 5.0,     # Window to detect post-exchange pocketing
 
     # ── Temporal Filter — flicker suppression ─────────────────────────
-    "temporal_min_frames": 2,        # Min frames with cash in window to confirm
+    "temporal_min_frames": 4,        # ↑ Was 2 — need 4/5 frames to confirm (Phase 0A)
     "temporal_window": 5,            # Sliding window size (frames)
 }
