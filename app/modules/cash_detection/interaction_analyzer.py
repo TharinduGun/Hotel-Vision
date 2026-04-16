@@ -84,18 +84,18 @@ class InteractionAnalyzer:
         interacting_pairs = set()
         hands_in_roi = set()
         for hi in hand_interactions:
-            # ONLY count interactions that occur IN the transaction zones (cashier/money_exchange)
-            if not hi.in_transaction_roi:
-                continue
-                
             pair = (hi.customer_id, hi.cashier_id)
             interacting_pairs.add(pair)
             
             if pair not in current_signals:
                 current_signals[pair] = set()
             
+            # Always register hand proximity as a signal
             current_signals[pair].add("HANDS_CLOSE")
-            current_signals[pair].add("HANDS_IN_ROI")
+            
+            # Bonus signal when zones confirm the interaction is in a transaction area
+            if hi.in_transaction_roi:
+                current_signals[pair].add("HANDS_IN_ROI")
                 
         # Initialize default pairs if not interacting but present
         for cust_id in customers:
@@ -136,29 +136,40 @@ class InteractionAnalyzer:
                 cash_count = sum(1 for entry in self.history[pair] if "CASH_DETECTED" in entry["signals"])
                 
                 if interaction_count >= self.required_interaction_frames:
-                    # High confidence exchange
-                    if cash_count > 0:
-                        events.append(ExchangeEvent(
-                            customer_id=pair[0],
-                            cashier_id=pair[1],
-                            timestamp=current_time,
-                            frame_idx=frame_idx,
-                            confidence=0.9,
-                            reason=f"Hands interacted ({interaction_count} frames) + Cash detected"
-                        ))
-                        self.last_event_frame[pair] = frame_idx
-                    elif interaction_count >= self.inferred_exchange_frames:
-                        # Interaction without explicit cash detection -> inferred exchange
-                        # We require a MUCH longer interaction if we don't see cash
-                        events.append(ExchangeEvent(
-                            customer_id=pair[0],
-                            cashier_id=pair[1],
-                            timestamp=current_time,
-                            frame_idx=frame_idx,
-                            confidence=0.7,
-                            reason=f"Hands interacted ({interaction_count} frames), but no cash detected"
-                        ))
-                        self.last_event_frame[pair] = frame_idx
+                    # Check if we have ROI bonus
+                    roi_count = sum(1 for entry in self.history[pair] if "HANDS_IN_ROI" in entry["signals"])
+                    has_roi_bonus = roi_count > 0
+                    
+                    # Without ROI, require 2x longer interaction as safety margin
+                    effective_threshold = self.required_interaction_frames
+                    if not has_roi_bonus:
+                        effective_threshold = self.required_interaction_frames * 2
+                    
+                    if interaction_count >= effective_threshold:
+                        # High confidence exchange
+                        if cash_count > 0:
+                            events.append(ExchangeEvent(
+                                customer_id=pair[0],
+                                cashier_id=pair[1],
+                                timestamp=current_time,
+                                frame_idx=frame_idx,
+                                confidence=0.9 if has_roi_bonus else 0.75,
+                                reason=f"Hands interacted ({interaction_count} frames) + Cash detected" +
+                                       (" + In ROI" if has_roi_bonus else " (no ROI)")
+                            ))
+                            self.last_event_frame[pair] = frame_idx
+                        elif interaction_count >= self.inferred_exchange_frames:
+                            # Interaction without explicit cash detection -> inferred exchange
+                            events.append(ExchangeEvent(
+                                customer_id=pair[0],
+                                cashier_id=pair[1],
+                                timestamp=current_time,
+                                frame_idx=frame_idx,
+                                confidence=0.7 if has_roi_bonus else 0.5,
+                                reason=f"Hands interacted ({interaction_count} frames), no cash detected" +
+                                       (" + In ROI" if has_roi_bonus else " (no ROI)")
+                            ))
+                            self.last_event_frame[pair] = frame_idx
                     
         return events
 

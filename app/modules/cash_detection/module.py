@@ -144,19 +144,30 @@ class CashDetectionModule(AnalyticsModule):
         )
         logger.info("Layer 2: Temporal Filter initialized")
 
-        # ── Layer 3: Role Classifier ──────────────────────────────
+        # ── Layer 3: Role Classifier (behavioral) ──────────────────
         self._role_classifier = RoleClassifier(
             cashier_threshold=_cfg(config, "cashier_threshold"),
+            zone_weight=_cfg(config, "role_zone_weight"),
+            stationary_weight=_cfg(config, "role_stationary_weight"),
+            visitor_weight=_cfg(config, "role_visitor_weight"),
+            stationary_frames=_cfg(config, "role_stationary_frames"),
+            movement_threshold_px=_cfg(config, "role_movement_threshold_px"),
+            visitor_count_threshold=_cfg(config, "role_visitor_count_threshold"),
         )
-        logger.info("Layer 3: Role Classifier initialized")
+        logger.info("Layer 3: Role Classifier initialized (behavioral)")
 
-        # ── Layer 4: Cash Tracker (state machine) ─────────────────
+        # ── Layer 4: Cash Tracker (5-state machine) ────────────────
         self._cash_tracker = CashTracker(
             pickup_debounce=_cfg(config, "pickup_debounce"),
             deposit_debounce=_cfg(config, "deposit_debounce"),
             zone_alert_cooldown=_cfg(config, "zone_alert_cooldown"),
+            occlusion_grace_frames=_cfg(config, "occlusion_grace_frames"),
+            suspicious_confirm_count=_cfg(config, "suspicious_confirm_count"),
+            stale_profile_frames=_cfg(config, "stale_profile_frames"),
+            stationary_threshold_px=_cfg(config, "stationary_threshold_px"),
+            proximity_threshold_px=_cfg(config, "proximity_threshold_px"),
         )
-        logger.info("Layer 4: Cash Tracker initialized")
+        logger.info("Layer 4: Cash Tracker initialized (zone-free)")
 
         # ── Layer 5: Hand Detector (YOLOv8-pose) ─────────────────
         self._hand_detector = HandDetector(
@@ -233,13 +244,38 @@ class CashDetectionModule(AnalyticsModule):
             )
 
         # ── Layer 3: Role Classification ───────────────────────────
-        if context.roi_manager:
-            for tid, tdata in person_tracks.items():
-                if tdata.get("cls") == 0:
-                    cx = (tdata["bbox"][0] + tdata["bbox"][2]) / 2
-                    cy = (tdata["bbox"][1] + tdata["bbox"][3]) / 2
+        # Collect nearby IDs for visitor tracking (behavioral Cashier detection)
+        for tid, tdata in person_tracks.items():
+            if tdata.get("cls") == 0:
+                bbox = tdata["bbox"]
+                cx = (bbox[0] + bbox[2]) / 2
+                cy = (bbox[1] + bbox[3]) / 2
+
+                # Get zone info (may be None if no zones configured)
+                zone_name = "Outside"
+                zone_type = None
+                if context.roi_manager and context.roi_manager.has_zones:
                     zone_name, zone_type = context.roi_manager.get_zone_with_type(cx, cy)
-                    self._role_classifier.update(tid, zone_name, zone_type)
+
+                # Find nearby person IDs (for visitor signal)
+                nearby_ids = set()
+                for other_tid, other_tdata in person_tracks.items():
+                    if other_tid != tid and other_tdata.get("cls") == 0:
+                        other_bbox = other_tdata["bbox"]
+                        other_cx = (other_bbox[0] + other_bbox[2]) / 2
+                        other_cy = (other_bbox[1] + other_bbox[3]) / 2
+                        dist = ((cx - other_cx) ** 2 + (cy - other_cy) ** 2) ** 0.5
+                        if dist < 250:  # proximity threshold
+                            nearby_ids.add(other_tid)
+
+                self._role_classifier.update(
+                    logical_id=tid,
+                    zone_name=zone_name,
+                    zone_type=zone_type,
+                    bbox=bbox,
+                    frame_idx=context.frame_idx,
+                    nearby_ids=nearby_ids,
+                )
 
         current_roles = {
             tid: self._role_classifier.get_role(tid)
@@ -258,9 +294,14 @@ class CashDetectionModule(AnalyticsModule):
                 person_tracks=person_tracks,
                 cash_associations=cash_associations,
                 roi_manager=context.roi_manager,
+                roles=current_roles,
             )
 
         for ce in cash_events:
+            # Skip NEUTRAL events — they are informational only, no alert
+            if ce.event_type == CashEventType.NEUTRAL:
+                continue
+
             severity = CASH_EVENT_SEVERITY.get(ce.event_type, Severity.MEDIUM)
             person_bbox = person_tracks.get(ce.person_id, {}).get("bbox", [0, 0, 0, 0])
 

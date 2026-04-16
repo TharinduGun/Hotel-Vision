@@ -77,7 +77,7 @@ CAMERAS = [
 
 
 # ── CSV discovery ─────────────────────────────────────────────────────
-CSV_FILENAME = "tracking_summary.csv"
+CSV_FILENAME = "analytics_events.csv"
 
 
 def discover_latest_csv() -> Path | None:

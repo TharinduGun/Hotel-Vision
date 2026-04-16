@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { Maximize2, Volume2, Circle } from "lucide-react";
+import { Maximize2, Volume2, Circle, Play } from "lucide-react";
 
 interface CameraFeedProps {
   id: string;
@@ -9,6 +9,7 @@ interface CameraFeedProps {
   isLive?: boolean;
   hasAlert?: boolean;
   className?: string;
+  onClick?: () => void;
 }
 
 export const CameraFeed = ({
@@ -19,6 +20,7 @@ export const CameraFeed = ({
   isLive = true,
   hasAlert = false,
   className,
+  onClick,
 }: CameraFeedProps) => {
   const timestamp = new Date().toLocaleTimeString("en-US", {
     hour12: false,
@@ -34,6 +36,7 @@ export const CameraFeed = ({
         hasAlert && "border-destructive/50 animate-pulse-glow",
         className
       )}
+      onClick={onClick}
     >
       <div className="relative aspect-video overflow-hidden">
         <img
@@ -41,6 +44,13 @@ export const CameraFeed = ({
           alt={name}
           className="w-full h-full object-cover filter grayscale contrast-110"
         />
+
+        {/* Play button overlay on hover */}
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/30">
+          <div className="w-14 h-14 rounded-full bg-primary/90 flex items-center justify-center shadow-lg backdrop-blur-sm">
+            <Play className="w-6 h-6 text-primary-foreground ml-0.5" />
+          </div>
+        </div>
         
         {/* Scan line effect */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-30">
@@ -48,7 +58,7 @@ export const CameraFeed = ({
         </div>
 
         {/* Overlay info */}
-        <div className="absolute inset-0 z-10 flex flex-col justify-between p-3">
+        <div className="absolute inset-0 z-10 flex flex-col justify-between p-3 pointer-events-none">
           {/* Top bar */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -68,7 +78,7 @@ export const CameraFeed = ({
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-auto">
               <button className="p-1.5 rounded bg-background/50 backdrop-blur-sm hover:bg-background/70 transition-colors">
                 <Volume2 className="w-3 h-3 text-foreground" />
               </button>

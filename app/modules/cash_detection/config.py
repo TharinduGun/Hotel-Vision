@@ -45,6 +45,12 @@ CASH_DETECTION_DEFAULTS = {
     "pickup_debounce": 15,           # ↑ Was 8 — 15 frames = ~0.6s at 25fps (Phase 0A)
     "deposit_debounce": 15,          # Frames cash must be absent before CASH_DEPOSIT
     "zone_alert_cooldown": 30,       # Frames between repeated zone violation alerts
+    # Phase 1: Zone-free state machine params
+    "occlusion_grace_frames": 20,    # Frames to wait before deciding cash is gone (0.8s)
+    "suspicious_confirm_count": 3,   # Frames in SUSPICIOUS before POCKET alert
+    "stale_profile_frames": 300,     # Remove profiles not seen for ~12s
+    "stationary_threshold_px": 15,   # Max center movement to be "stationary"
+    "proximity_threshold_px": 200,   # Max distance between persons for "near"
 
     # ── Hand Detector (Layer 4) — pose estimation ─────────────────────
     "pose_model_path": "yolov8m-pose.pt",
@@ -52,8 +58,17 @@ CASH_DETECTION_DEFAULTS = {
     "interaction_threshold_px": 90,  # Max distance between hands to count as interaction
     "iou_threshold": 0.3,            # Minimum IOU to map pose to person
 
-    # ── Role Classifier ───────────────────────────────────────────────
-    "cashier_threshold": 0.60,       # Fraction of frames in staff zone to be "Cashier"
+    # ── Role Classifier — behavioral signals ──────────────────────────
+    "cashier_threshold": 0.50,       # ↓ Was 0.60 — multi-signal score threshold
+    # Signal weights
+    "role_zone_weight": 0.9,         # Weight for zone occupancy signal
+    "role_stationary_weight": 0.7,   # Weight for stationarity signal
+    "role_visitor_weight": 0.5,      # Weight for visitor count signal
+    # Stationarity params
+    "role_stationary_frames": 450,   # ~18s at 25fps before considering stationary
+    "role_movement_threshold_px": 20.0,  # Max drift to be "stationary"
+    # Visitor params
+    "role_visitor_count_threshold": 3,   # Unique nearby IDs to be "receiving visitors"
 
     # ── Interaction Analyzer (Layer 5) — signal fusion ────────────────
     "interaction_time_window_sec": 3.0,    # Rolling window for signal history

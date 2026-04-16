@@ -45,8 +45,14 @@ export const EmployeeRow = ({
   return (
     <div className="flex items-center gap-4 p-3 rounded-lg border border-border/30 bg-card/50 hover:bg-muted/30 transition-colors cursor-pointer">
       <div className="relative">
-        <div className="w-10 h-10 rounded-full bg-muted overflow-hidden">
-          <img src={avatar} alt={name} className="w-full h-full object-cover" />
+        <div className="w-10 h-10 rounded-full bg-muted overflow-hidden flex items-center justify-center">
+          {avatar ? (
+            <img src={avatar} alt={name} className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-sm font-bold text-muted-foreground">
+              {name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
+            </span>
+          )}
         </div>
         <span className={cn("status-dot absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-card", styles.dot)} />
       </div>

@@ -5,13 +5,13 @@ import { CameraGrid } from "@/components/dashboard/CameraGrid";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { EmployeeTracking } from "@/components/dashboard/EmployeeTracking";
 
-import { 
-  Camera, 
-  AlertTriangle, 
-  Users, 
-  ShieldCheck, 
-  Activity, 
-  Clock   
+import {
+  Camera,
+  AlertTriangle,
+  Users,
+  ShieldCheck,
+  Activity,
+  Clock,
 } from "lucide-react";
 
 import { useDashboardData } from "@/hooks/useDashboardData";
@@ -19,18 +19,18 @@ import { useDashboardData } from "@/hooks/useDashboardData";
 const Index = () => {
   useLiveSocket();
 
- const { summary, alerts, employees, isLoading, error } = useDashboardData();
+  const { summary, alerts, employees, isLoading, error } = useDashboardData();
 
-  if (isLoading) return <div>Loading...</div>;
-  if (error) return <div>Error loading dashboard</div>;
+  if (isLoading) return <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground">Loading dashboard...</div>;
+  if (error) return <div className="min-h-screen bg-background flex items-center justify-center text-destructive">Error loading dashboard</div>;
 
-  if (!summary) return null;  
+  if (!summary) return null;
 
-const cards = summary.cards;
+  const cards = summary.cards;
   return (
     <div className="min-h-screen bg-background grid-pattern">
       <Header />
-      
+
       <main className="container mx-auto px-4 py-6 space-y-6">
 
         {/* Stats */}
@@ -78,14 +78,14 @@ const cards = summary.cards;
           <div className="lg:col-span-2">
             <CameraGrid />
           </div>
-          
+
           <div className="lg:col-span-1 h-[600px]">
-            <AlertsPanel />
+            <AlertsPanel alerts={alerts} />
           </div>
 
         </div>
 
-        <EmployeeTracking />
+        <EmployeeTracking employees={employees} />
 
       </main>
     </div>
@@ -93,4 +93,3 @@ const cards = summary.cards;
 };
 
 export default Index;
-

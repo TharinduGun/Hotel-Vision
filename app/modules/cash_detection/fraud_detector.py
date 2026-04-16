@@ -60,8 +60,9 @@ class FraudDetector:
     ) -> List[FraudAlert]:
         alerts = []
         
-        # 1. Update hand positions to check for register visits
-        if roi_manager and roi_manager.has_zones:
+        # 1. Update hand positions to check for register visits (only when zones exist)
+        has_zones = roi_manager and roi_manager.has_zones
+        if has_zones:
             for pid, hands in person_hands.items():
                 if roles.get(pid) == "Cashier":
                     for pt in hands:
@@ -119,6 +120,7 @@ class FraudDetector:
                 ))
 
         # 4. Check for unresolved exchanges (Rule: Cash Taken but Not Registered)
+        # This rule only makes sense when zones are defined (need a "register" zone to check)
         expired_exchanges = []
         for eid, evt in self.pending_exchanges.items():
             if eid in self.resolved_exchanges:
@@ -127,20 +129,21 @@ class FraudDetector:
                 
             elapsed_frames = frame_idx - evt.frame_idx
             if elapsed_frames > self.register_wait_frames:
-                # Time's up. Did the cashier visit the register?
-                last_visit = self.last_register_visit.get(evt.cashier_id, -999)
-                
-                if last_visit < evt.frame_idx:
-                    # Cashier never went to the register since the exchange
-                    alerts.append(FraudAlert(
-                        alert_type="UNREGISTERED_CASH",
-                        person_id=evt.cashier_id,
-                        timestamp=current_time,
-                        frame_idx=frame_idx,
-                        confidence=0.75,
-                        description=(f"Cashier {evt.cashier_id} engaged in an exchange "
-                                     f"but hand did not visit register within {self.register_wait_frames / self.fps:.1f}s.")
-                    ))
+                # Only fire UNREGISTERED_CASH when zones exist
+                if has_zones:
+                    last_visit = self.last_register_visit.get(evt.cashier_id, -999)
+                    
+                    if last_visit < evt.frame_idx:
+                        # Cashier never went to the register since the exchange
+                        alerts.append(FraudAlert(
+                            alert_type="UNREGISTERED_CASH",
+                            person_id=evt.cashier_id,
+                            timestamp=current_time,
+                            frame_idx=frame_idx,
+                            confidence=0.75,
+                            description=(f"Cashier {evt.cashier_id} engaged in an exchange "
+                                         f"but hand did not visit register within {self.register_wait_frames / self.fps:.1f}s.")
+                        ))
                 
                 expired_exchanges.append(eid)
                 
