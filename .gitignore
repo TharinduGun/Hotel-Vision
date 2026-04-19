@@ -14,11 +14,21 @@ data/events/events.csv
 
 # Model weights
 models/*.pt
+*.pt
+*.pth
+*.onnx
 
 # Outputs
 outputs/processed_video/*
 outputs/heatmaps/*
 outputs/reports/*
+
+# Embeddings
+*.pkl
+
+# Output / logs
+output/
+*.csv
 
 # IDE
 .idea/
@@ -35,3 +45,6 @@ Thumbs.db
 !data/events/.gitkeep
 !models/.gitkeep
 !outputs/**/.gitkeep
+
+# Environment
+.env
