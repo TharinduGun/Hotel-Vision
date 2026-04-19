@@ -1,0 +1,12 @@
+track_id,direction,timestamp,frame_idx,edge,position_x,position_y
+4,entry,0.0,0,top,344.1,51.2
+5,entry,0.77,23,left,29.7,480.6
+5,exit,1.87,56,left,35.4,474.8
+5,exit,3.6,108,left,34.0,475.5
+26,entry,5.03,151,left,30.5,478.1
+28,entry,6.7,201,left,34.2,556.9
+30,entry,9.43,283,left,21.4,484.7
+4,exit,9.53,286,top,344.5,50.8
+30,entry,11.0,330,left,28.3,475.0
+33,entry,12.33,370,top,386.2,31.6
+39,entry,15.33,460,left,32.8,476.3
