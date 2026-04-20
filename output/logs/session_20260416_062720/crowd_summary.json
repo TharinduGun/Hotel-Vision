@@ -1,0 +1,15 @@
+{
+  "total_entries": 8,
+  "total_exits": 3,
+  "peak_occupancy": 6,
+  "avg_occupancy": 4.0,
+  "current_density": "moderate",
+  "avg_dwell_sec": 3.8,
+  "max_dwell_sec": 9.5,
+  "total_dwell_records": 23,
+  "total_unique_tracks": 12,
+  "density_time_distribution": {
+    "moderate": 0.0
+  },
+  "footfall_events_count": 11
+}

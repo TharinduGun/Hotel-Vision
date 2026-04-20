@@ -1,0 +1,169 @@
+# ──────────────────────────────────────────────────────────────────────
+# Hotel Vision — Central System Configuration
+# ──────────────────────────────────────────────────────────────────────
+# This file drives the entire analytics engine.
+# Edit cameras, modules, and thresholds here — no code changes needed.
+#
+# Usage:
+#   python -m app.main                         (uses this file)
+#   python -m app.main --config path/to.yaml   (custom config)
+# ──────────────────────────────────────────────────────────────────────
+
+# ── Cameras ────────────────────────────────────────────────────────────
+cameras:
+  CAM-01:
+    name: "Main Lobby"
+    source: "resources/videos/Indoor_Original_VideoStream.mp4"
+    type: "file"            # "file" | "rtsp"
+    modules:
+      - gun_detection
+      - cash_detection
+      - crowd_detection
+    # Optional: run_seconds limits processing length (null = full video)
+    run_seconds: 1800
+
+    CAM-02:
+    name: "Parking Lot"
+    source: "data/videos/video5.mp4"      # ← parking footage path
+    type: "file"
+    modules:
+      - parking
+    run_seconds: 1800
+
+# ── Modules ────────────────────────────────────────────────────────────
+modules:
+  gun_detection:
+    enabled: true
+    model_path: "pycode/models/gun_detector/weights/best.pt"
+    conf_threshold: 0.7       # Restored to 0.80 (strict filter)
+    person_roi_only: true       # Only detect within person bounding boxes (user requested)
+    roi_padding: 0.30           # 30% padding when person_roi_only is true
+    alert_cooldown_sec: 10.0    # Min seconds between alerts for same person
+    save_snapshots: true
+    save_clips: true
+    clip_duration_sec: 5.0      # Seconds of video to save around detection
+    # Hand proximity filter — only accept detections near person's hands
+    hand_proximity_filter: true
+    pose_model_path: "pycode/src/yolov8m-pose.pt"
+    hand_radius_ratio: 0.4      # Max distance from wrist (as ratio of person height)
+    # Size filter — reject oversized detections
+    max_weapon_area_ratio: 0.40  # Weapon bbox area must be < 40% of person bbox area
+    # Minimum size filters — reject tiny noise detections
+    min_weapon_pixels: 900       # Min weapon bbox area in pixels (≈30×30)
+    min_weapon_height_ratio: 0.05  # Weapon height must be ≥5% of person height
+    # Temporal consistency — require persistence across frames
+    temporal_min_frames: 3       # Min frames with detections to confirm
+    temporal_window: 5           # Out of last N frame observations
+
+  cash_detection:
+    enabled: true
+    model_path: "pycode/models/cash_detector_v2/train_v2/weights/best.pt"
+    conf_threshold: 0.35
+    fps: 25.0
+    cameras: ["*"]
+    
+    # SAHI Integration
+    use_sahi: true
+    sahi_slice_width: 640
+    sahi_slice_height: 640
+    sahi_overlap_ratio: 0.25
+
+    # Cash tracker debounce (frames)
+    pickup_debounce: 8              # Frames of cash detection before CASH_PICKUP
+    deposit_debounce: 15            # Frames without cash before deposit/pocket
+    zone_alert_cooldown: 30         # Cooldown between zone violation alerts
+    # Temporal filter (flicker suppression)
+    temporal_min_frames: 2          # Min frames with cash to confirm
+    temporal_window: 5              # Sliding window size
+    # Interaction analyzer
+    required_interaction_frames: 25 # 1.0s of hand proximity at 25fps
+    interaction_cooldown_frames: 75 # Prevent event spam
+
+  crowd_detection:
+    enabled: true
+    cameras: ["*"]                    # Run on all cameras
+    # Density thresholds (persons in frame)
+    density_low_max: 3                # 0–3 persons = LOW
+    density_moderate_max: 8           # 4–8 = MODERATE
+    density_high_max: 15              # 9–15 = HIGH (16+ = CRITICAL)
+    # Footfall
+    edge_margin_ratio: 0.05           # 5% frame edge = entry/exit zone
+    entry_exit_cooldown_sec: 1.0      # Debounce between entry/exit events
+    # Heat map
+    heatmap_resolution: 100           # Grid cells along longest axis
+    heatmap_decay: 0.998              # Per-frame decay (slow fade)
+    heatmap_alpha: 0.4                # Overlay transparency
+    # Trajectories
+    trajectory_max_length: 300        # Max points stored per track
+    trajectory_draw_length: 60        # Recent points drawn on video
+    # Alerts
+    alert_on_density_change: true
+    high_density_alert_sec: 10.0      # Cooldown for HIGH density alerts
+    critical_density_alert_sec: 5.0   # Cooldown for CRITICAL density alerts
+
+     # ── Staff Tracking (NEW) ───────────────────────────────────────────
+  staff_tracking:
+    enabled: true
+    cameras: ["*"]
+
+    # Path to zones.json — defines counter, queue, break_room polygons
+    # Update coordinates using tools/zone_selector.py once hotel footage arrives
+    zones_config: "configs/zones.json"
+
+    # Face recognition
+    # Run build_employee_db.py first to generate this file
+    embeddings_path: "data/employee_embeddings.pkl"
+    employees_config: "configs/employees.json"
+    recognition_threshold: 0.9       # L2 distance — lower = stricter
+    face_detect_interval: 15         # Run face ID every N frames (balance accuracy vs speed)
+
+    # Queue alert
+    queue_threshold: 5               # People in queue zone to trigger HIGH alert
+    queue_cooldown_frames: 75        # ~3s at 25fps between consecutive queue alerts
+
+    # Idle detection
+    idle_window_frames: 30           # Frames to assess idle state (~1.2s at 25fps)
+    idle_movement_threshold: 15      # Max pixel range (Euclidean) to call idle
+    idle_cooldown_frames: 75         # Min frames between idle alerts per employee
+
+# ── Parking Module (NEW) ───────────────────────────────────────────
+  parking:
+    enabled: true
+    cameras: ["CAM-02"]                   # only run on the parking camera
+
+    # Vehicle detection
+    model_path: "pycode/src/yolov8n.pt"   # yolov8n is enough for vehicles
+    conf_day: 0.25
+    conf_night: 0.20
+
+    # Tiled inference — keeps closely-parked vehicles as separate detections
+    tile_rows: 2
+    tile_cols: 2
+    tile_overlap: 0.2
+
+    # IoU tracker
+    iou_threshold: 0.15
+    tracker_max_age: 20
+
+    # Occupancy
+    total_spaces: 13                      # total parking spaces in the lot
+
+    # Alerts
+    status_update_interval: 30            # frames between periodic snapshots
+    dwell_alert_minutes: 60               # alert when a vehicle stays this long
+
+
+# ── Shared Services ───────────────────────────────────────────────────
+shared:
+  person_model_path: "pycode/src/yolov8m.pt"
+  pose_model_path: "pycode/src/yolov8m-pose.pt"
+  device: "auto"                # "auto" | "cuda" | "cpu"
+  output_dir: "output/logs"
+  zones_config: "pycode/config/zones.json"
+
+  # Person detection settings
+  person_conf: 0.20
+  person_iou: 0.5
+  person_imgsz: 960
+  person_classes: [0, 2]        # 0=person, 2=car
+  min_persistence_frames: 60

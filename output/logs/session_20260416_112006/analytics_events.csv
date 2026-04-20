@@ -1,0 +1,6 @@
+module,camera_id,timestamp,event_type,confidence,bbox,severity,frame_idx,person_id,snapshot_path,clip_path,iso_timestamp
+crowd_detection,CAM-01,0.0,density_change,1.0,"460,180,820,540",low,0,,,,2026-04-16T11:20:19.924893
+crowd_detection,CAM-01,0.0,person_entry,1.0,"324,31,364,71",low,0,4,,,2026-04-16T11:20:19.924893
+crowd_detection,CAM-01,0.767,person_entry,1.0,"10,461,50,501",low,23,5,,,2026-04-16T11:21:40.645941
+crowd_detection,CAM-01,1.867,person_exit,1.0,"15,455,55,495",low,56,5,,,2026-04-16T11:23:58.331173
+crowd_detection,CAM-01,3.6,person_exit,1.0,"14,456,54,496",low,108,5,,,2026-04-16T11:33:27.811342

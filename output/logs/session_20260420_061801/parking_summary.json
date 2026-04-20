@@ -1,0 +1,175 @@
+{
+  "total_snapshots": 28,
+  "peak_occupancy_pct": 46.2,
+  "avg_occupancy_pct": 33.3,
+  "snapshots": [
+    {
+      "timestamp": 0.48333333333333334,
+      "occupied": 2,
+      "occupancy_pct": 15.4,
+      "status": "available"
+    },
+    {
+      "timestamp": 0.9833333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 1.4833333333333334,
+      "occupied": 3,
+      "occupancy_pct": 23.1,
+      "status": "available"
+    },
+    {
+      "timestamp": 1.9833333333333334,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 2.4833333333333334,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 2.9833333333333334,
+      "occupied": 3,
+      "occupancy_pct": 23.1,
+      "status": "available"
+    },
+    {
+      "timestamp": 3.4833333333333334,
+      "occupied": 3,
+      "occupancy_pct": 23.1,
+      "status": "available"
+    },
+    {
+      "timestamp": 3.9833333333333334,
+      "occupied": 3,
+      "occupancy_pct": 23.1,
+      "status": "available"
+    },
+    {
+      "timestamp": 4.483333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 4.983333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 5.483333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 5.983333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 6.483333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 6.983333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 7.483333333333333,
+      "occupied": 5,
+      "occupancy_pct": 38.5,
+      "status": "available"
+    },
+    {
+      "timestamp": 7.983333333333333,
+      "occupied": 6,
+      "occupancy_pct": 46.2,
+      "status": "available"
+    },
+    {
+      "timestamp": 8.483333333333333,
+      "occupied": 6,
+      "occupancy_pct": 46.2,
+      "status": "available"
+    },
+    {
+      "timestamp": 8.983333333333333,
+      "occupied": 6,
+      "occupancy_pct": 46.2,
+      "status": "available"
+    },
+    {
+      "timestamp": 9.483333333333333,
+      "occupied": 5,
+      "occupancy_pct": 38.5,
+      "status": "available"
+    },
+    {
+      "timestamp": 9.983333333333333,
+      "occupied": 6,
+      "occupancy_pct": 46.2,
+      "status": "available"
+    },
+    {
+      "timestamp": 10.483333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 10.983333333333333,
+      "occupied": 5,
+      "occupancy_pct": 38.5,
+      "status": "available"
+    },
+    {
+      "timestamp": 11.483333333333333,
+      "occupied": 6,
+      "occupancy_pct": 46.2,
+      "status": "available"
+    },
+    {
+      "timestamp": 11.983333333333333,
+      "occupied": 5,
+      "occupancy_pct": 38.5,
+      "status": "available"
+    },
+    {
+      "timestamp": 12.483333333333333,
+      "occupied": 5,
+      "occupancy_pct": 38.5,
+      "status": "available"
+    },
+    {
+      "timestamp": 12.983333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 13.483333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    },
+    {
+      "timestamp": 13.983333333333333,
+      "occupied": 4,
+      "occupancy_pct": 30.8,
+      "status": "available"
+    }
+  ]
+}

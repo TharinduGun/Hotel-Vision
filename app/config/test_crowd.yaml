@@ -1,0 +1,60 @@
+# ──────────────────────────────────────────────────────────────────────
+# Crowd Detection Test Config — Quick run on a short clip
+# ──────────────────────────────────────────────────────────────────────
+# Usage:
+#   python -m app.main --config app/config/test_crowd.yaml
+# ──────────────────────────────────────────────────────────────────────
+
+cameras:
+  CAM-TEST:
+    name: "Crowd Test Clip"
+    source: "resources/videos/Shopping, People, Commerce, Mall, Many, Crowd, Walking Free Stock video footage YouTube.mp4"
+    type: "file"
+    modules:
+      - crowd_detection    # Only run crowd module
+    run_seconds: null      # Process full clip
+
+modules:
+  crowd_detection:
+    enabled: true
+    cameras: ["*"]
+    # Dedicated person model (larger = better crowd detection)
+    person_model_path: "yolov8l.pt"   # Auto-downloads ~84MB on first run
+    person_conf: 0.10                 # Low confidence for distant/small people
+    person_iou: 0.45                  # Keep overlapping detections in crowds
+    person_imgsz: 1280                # High-res inference
+    tracker_config: "pycode/utils/tracker/bytetrack_cctv.yaml"
+    # SAHI — Sliced Aided Hyper Inference (detects small/distant people)
+    use_sahi: true
+    sahi_slice_width: 640             # Tile width (px)
+    sahi_slice_height: 640            # Tile height (px)
+    sahi_overlap_ratio: 0.25          # 25% overlap between tiles
+    sahi_track_iou: 0.25              # IoU threshold for cross-frame tracking
+    sahi_track_max_lost: 30           # Frames before dropping a lost track
+    # Density thresholds
+    density_low_max: 3
+    density_moderate_max: 8
+    density_high_max: 15
+    edge_margin_ratio: 0.05
+    entry_exit_cooldown_sec: 1.0
+    heatmap_resolution: 100
+    heatmap_decay: 0.998
+    heatmap_alpha: 0.4
+    trajectory_max_length: 500        # Max points stored per track
+    trajectory_draw_length: 0         # 0 = draw full path (entry to exit)
+    alert_on_density_change: true
+    high_density_alert_sec: 10.0
+    critical_density_alert_sec: 5.0
+
+shared:
+  person_model_path: "pycode/src/yolov8m.pt"
+  pose_model_path: "pycode/src/yolov8m-pose.pt"
+  device: "auto"
+  output_dir: "output/logs"
+  zones_config: "pycode/config/zones.json"
+  person_conf: 0.10             # Lower = detect more distant/small people
+  person_iou: 0.45              # Lower = keep more overlapping detections in crowds
+  person_imgsz: 1280            # Higher resolution = better small-person detection
+  person_classes: [0]           # Only persons (no cars for this test)
+  min_persistence_frames: 30    # Lower = faster ID assignment for brief appearances
+  tracker_config: "pycode/utils/tracker/bytetrack_cctv.yaml"

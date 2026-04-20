@@ -1,0 +1,1 @@
+module,camera_id,timestamp,event_type,confidence,bbox,severity,frame_idx,person_id,snapshot_path,clip_path,iso_timestamp

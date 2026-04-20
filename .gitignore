@@ -15,6 +15,9 @@ data/videos/
 
 # Output data
 data/outputs/
+data/outputs/parking_data.csv
+data/outputs/system.log
+configs/parking_spaces.py
 
 # Log files
 *.log
@@ -22,3 +25,11 @@ data/outputs/
 # System files
 .DS_Store
 Thumbs.db
+
+# Environment
+.env
+.claude/
+
+backend/storage/media/snapshots/
+backend/storage/media/evidence/
+backend/storage/data/

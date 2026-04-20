@@ -1,0 +1,12 @@
+{
+  "cameras": [
+    {
+      "id": "cam_1",
+      "source": "data/videos/coffee_shop2.mp4"
+    },
+    {
+      "id": "cam_2",
+      "source": "rtsp://192.168.1.10/live"
+    }
+  ]
+}
