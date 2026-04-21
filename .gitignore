@@ -63,3 +63,16 @@ resources/datasets/
 
 # Temporary Local Clones
 temp_repos/
+
+# Large Data Files & Models
+*.zip
+*.pkl
+**/*.pt
+!pycode/models/**/*.pt
+
+# Employee Photos & PII (Security)
+data/employees/*
+!data/employees/.gitkeep
+
+# Temporary outputs
+venv_freeze*.txt

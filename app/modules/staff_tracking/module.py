@@ -262,10 +262,7 @@ class StaffTrackingModule(AnalyticsModule):
         # ── InsightFace ───────────────────────────────────────────────
         try:
             from insightface.app import FaceAnalysis
-            self._face_app = FaceAnalysis(
-                allowed_modules=["detection", "recognition"],
-                providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-            )
+            self._face_app = FaceAnalysis(name="buffalo_l")
             self._face_app.prepare(ctx_id=0)
             print("[StaffTracking] InsightFace loaded")
         except Exception as e:
