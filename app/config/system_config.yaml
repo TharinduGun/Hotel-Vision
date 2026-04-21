@@ -19,6 +19,8 @@ cameras:
       - gun_detection
       - cash_detection
       - crowd_detection
+      - staff_tracking
+      - parking
     # Optional: run_seconds limits processing length (null = full video)
     run_seconds: 1800
 
@@ -99,6 +101,44 @@ modules:
     high_density_alert_sec: 10.0      # Cooldown for HIGH density alerts
     critical_density_alert_sec: 5.0   # Cooldown for CRITICAL density alerts
 
+  staff_tracking:
+    enabled: true
+    cameras: ["*"]
+    # Zone-based monitoring
+    zones_config: "configs/zones.json"
+    # Face recognition interval
+    face_detect_interval: 15          # Run face ID every N frames
+    # Queue monitoring
+    queue_threshold: 5                # Persons in queue to trigger alert
+    # Idle detection
+    idle_window_frames: 150           # Frames to assess idle state (~6s at 25fps)
+    idle_movement_threshold: 15.0     # Pixel movement range below = idle
+    idle_cooldown_frames: 75          # Min frames between idle alerts
+    queue_cooldown_frames: 75         # Min frames between queue alerts
+    # Face recognition (optional — gracefully degrades if not available)
+    embeddings_path: "data/employee_embeddings.pkl"
+    employees_config: "configs/employees.json"
+    recognition_threshold: 0.9        # L2 distance threshold
+
+  parking:
+    enabled: true
+    cameras: ["*"]
+    model_path: "yolov8n.pt"          # Vehicle detection model
+    total_spaces: 13                  # Total defined parking spaces
+    # Detection thresholds
+    conf_day: 0.25
+    conf_night: 0.20
+    # Tiled inference for overhead parking footage
+    tile_rows: 2
+    tile_cols: 2
+    tile_overlap: 0.2
+    # Tracker
+    iou_threshold: 0.15
+    tracker_max_age: 20
+    # Reporting
+    status_update_interval: 30        # Frames between periodic status events
+    dwell_alert_minutes: 60           # Alert when vehicle parked this long
+
 # ── Shared Services ───────────────────────────────────────────────────
 shared:
   person_model_path: "pycode/src/yolov8m.pt"
@@ -116,3 +156,4 @@ shared:
 
   # Tracker config (relative to project root)
   tracker_config: "pycode/utils/tracker/bytetrack_cctv.yaml"
+
