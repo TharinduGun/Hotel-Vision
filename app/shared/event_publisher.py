@@ -70,12 +70,20 @@ class EventPublisher:
         self._fraud_file: TextIO | None = None
         self._fraud_writer: csv.DictWriter | None = None
 
+        self._weapon_path = self.session_dir / "weapon_events.csv"
+        self._weapon_file: TextIO | None = None
+        self._weapon_writer: csv.DictWriter | None = None
+
+        self._crowd_path = self.session_dir / "crowd_events.csv"
+        self._crowd_file: TextIO | None = None
+        self._crowd_writer: csv.DictWriter | None = None
+
         # Open all CSVs for streaming writes
         self._open_csvs()
 
         print(f"[EventPublisher] Session: {self.session_dir}")
         print(f"[EventPublisher] Unified Events: {self._csv_path}")
-        print(f"[EventPublisher] Legacy CSVs: cash_events.csv, exchange_events.csv, fraud_alerts.csv")
+        print(f"[EventPublisher] Legacy CSVs: cash_events.csv, exchange_events.csv, fraud_alerts.csv, weapon_events.csv, crowd_events.csv")
 
     def _open_csvs(self):
         """Open all CSV files and write their headers."""
@@ -109,6 +117,22 @@ class EventPublisher:
             fieldnames=["alert_id", "timestamp", "frame", "alert_type", "person_id", "confidence", "description"]
         )
         self._fraud_writer.writeheader()
+
+        # 5. Legacy Weapon Events
+        self._weapon_file = open(self._weapon_path, "w", newline="", encoding="utf-8")
+        self._weapon_writer = csv.DictWriter(
+            self._weapon_file,
+            fieldnames=["event_id", "timestamp", "frame", "person_id", "weapon_class", "confidence", "bbox", "camera_id", "snapshot_path"]
+        )
+        self._weapon_writer.writeheader()
+
+        # 6. Legacy Crowd Events
+        self._crowd_file = open(self._crowd_path, "w", newline="", encoding="utf-8")
+        self._crowd_writer = csv.DictWriter(
+            self._crowd_file,
+            fieldnames=["event_id", "timestamp", "frame", "event_type", "person_count", "density_level", "direction", "edge", "camera_id"]
+        )
+        self._crowd_writer.writeheader()
 
     def publish(self, event: AnalyticsEvent) -> None:
         """
@@ -165,6 +189,34 @@ class EventPublisher:
             })
             self._fraud_file.flush()
 
+        elif self._weapon_writer is not None and event.module == "gun_detection" and event.event_type == "weapon_detected":
+            self._weapon_writer.writerow({
+                "event_id": f"wpn_{int(event.timestamp*1000)}",
+                "timestamp": round(event.timestamp, 2),
+                "frame": event.frame_idx,
+                "person_id": event.person_id or "",
+                "weapon_class": event.metadata.get("weapon_class", "Unknown"),
+                "confidence": round(event.confidence, 3),
+                "bbox": ",".join(map(str, event.bbox)) if event.bbox else "",
+                "camera_id": event.camera_id,
+                "snapshot_path": event.snapshot_path or ""
+            })
+            self._weapon_file.flush()
+            
+        elif self._crowd_writer is not None and event.module == "crowd_detection":
+            self._crowd_writer.writerow({
+                "event_id": f"crd_{int(event.timestamp*1000)}_{event.frame_idx}",
+                "timestamp": round(event.timestamp, 2),
+                "frame": event.frame_idx,
+                "event_type": event.event_type,
+                "person_count": event.metadata.get("person_count", ""),
+                "density_level": event.metadata.get("density_level", ""),
+                "direction": event.metadata.get("direction", ""),
+                "edge": event.metadata.get("edge", ""),
+                "camera_id": event.camera_id
+            })
+            self._crowd_file.flush()
+
         # Log high-severity events
         if event.severity.value in ("high", "critical"):
             print(f"  🚨 [{event.module}] {event.event_type} "
@@ -216,6 +268,14 @@ class EventPublisher:
         if self._fraud_file is not None:
             self._fraud_file.close()
             self._fraud_file = None
+
+        if self._weapon_file is not None:
+            self._weapon_file.close()
+            self._weapon_file = None
+
+        if self._crowd_file is not None:
+            self._crowd_file.close()
+            self._crowd_file = None
 
         summary = self.get_summary()
         print(f"\n[EventPublisher] Session complete:")

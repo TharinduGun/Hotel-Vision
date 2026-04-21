@@ -70,6 +70,7 @@ function transformAlert(ba: BackendAlert, index: number): Alert {
     severity: mapSeverity(ba.severity),
     isNew: index < 3, // Top 3 most recent are "new"
     cameraId: ba.cameraId,
+    evidence: ba.evidence,
   };
 }
 

@@ -128,7 +128,7 @@ async def crowd_insights():
 
     # Check for heatmap
     heatmap_path = session_dir / "crowd_heatmap.png"
-    heatmap_url = f"/media/crowd_heatmap.png" if heatmap_path.exists() else None
+    heatmap_url = f"/evidence/{session_dir.name}/crowd_heatmap.png" if heatmap_path.exists() else None
 
     return CrowdInsightsResponse(
         ts=datetime.now(timezone.utc),

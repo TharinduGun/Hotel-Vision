@@ -75,6 +75,21 @@ def _safe_float(value: str, default: float = 0.0) -> float:
         return default
 
 
+def _path_to_url(filepath: str | None) -> str | None:
+    """Convert absolute pipeline path to /evidence/ URL."""
+    if not filepath:
+        return None
+    try:
+        path_obj = Path(filepath)
+        for i, part in enumerate(path_obj.parts):
+            if part.startswith("session_"):
+                rel_parts = path_obj.parts[i:]
+                return "/evidence/" + "/".join(rel_parts)
+    except Exception:
+        pass
+    return filepath
+
+
 def _safe_int(value: str, default: int = 0) -> int:
     try:
         return int(float(value))
@@ -171,6 +186,7 @@ def _parse_new_format_row(row: dict) -> Optional[TrackingEvent]:
         iso_timestamp = row.get("iso_timestamp", "").strip() or None
         bbox_str = row.get("bbox", "").strip()
         snapshot_path = row.get("snapshot_path", "").strip() or None
+        clip_path = row.get("clip_path", "").strip() or None
         
         # Determine object class from event type
         obj_class = _EVENT_TYPE_TO_CLASS.get(event_type, "event")
@@ -224,6 +240,8 @@ def _parse_new_format_row(row: dict) -> Optional[TrackingEvent]:
             cashConfidence=cash_confidence,
             cashPartnerId=cash_partner_id,
             employeeId=employee_id,
+            snapshotPath=_path_to_url(snapshot_path),
+            clipPath=_path_to_url(clip_path),
         )
     except Exception as e:
         logger.warning("Failed to parse new-format row: %s", e)
@@ -260,6 +278,8 @@ def _parse_old_format_row(row: dict, col_map: dict) -> Optional[TrackingEvent]:
                 row.get(col_map.get("cashPartnerId") or "", ""), None
             ) if row.get(col_map.get("cashPartnerId") or "", "").strip() else None,
             employeeId=row.get(col_map.get("employeeId") or "", "").strip() or None,
+            snapshotPath=None,
+            clipPath=None,
         )
     except Exception as e:
         logger.warning("Failed to parse old-format row: %s", e)

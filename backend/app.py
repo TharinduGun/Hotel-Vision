@@ -83,6 +83,7 @@ config.MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 (config.MEDIA_DIR / "evidence").mkdir(exist_ok=True)
 
 app.mount("/media", StaticFiles(directory=str(config.MEDIA_DIR)), name="media")
+app.mount("/evidence", StaticFiles(directory=str(config.CSV_BASE_DIR)), name="evidence")
 
 # ── Versioned API routes (/api/v1) ─────────────────────────────────────
 app.include_router(dashboard_router, prefix="/api/v1")

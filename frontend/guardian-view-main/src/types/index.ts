@@ -21,6 +21,10 @@ export interface Alert {
   severity: Severity;
   isNew?: boolean;
   cameraId?: string;
+  evidence?: {
+    imageUrl?: string;
+    clipUrl?: string;
+  };
 }
 
 // ── Camera types ─────────────────────────────────────────────────────
