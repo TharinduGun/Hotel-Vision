@@ -7,6 +7,7 @@ import {
   Banknote,
   Crosshair,
   Users,
+  Camera,
 } from "lucide-react";
 import { AlertType } from "@/types";
 
@@ -19,6 +20,8 @@ interface AlertItemProps {
   timestamp: string;
   severity: "high" | "medium" | "low" | "critical";
   isNew?: boolean;
+  hasEvidence?: boolean;
+  onClick?: () => void;
 }
 
 const alertIcons: Record<AlertType, typeof AlertTriangle> = {
@@ -46,6 +49,8 @@ export const AlertItem = ({
   timestamp,
   severity,
   isNew = false,
+  hasEvidence = false,
+  onClick,
 }: AlertItemProps) => {
   const Icon = alertIcons[type] || AlertTriangle;
 
@@ -56,6 +61,7 @@ export const AlertItem = ({
         severityStyles[severity] || severityStyles.low,
         isNew && "animate-fade-in"
       )}
+      onClick={onClick}
     >
       {isNew && (
         <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-primary animate-pulse" />
@@ -96,7 +102,15 @@ export const AlertItem = ({
             {description}
           </p>
           <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
-            <span>{location}</span>
+            <div className="flex items-center gap-2">
+              <span>{location}</span>
+              {hasEvidence && (
+                <span className="flex items-center gap-1 text-primary">
+                  <Camera className="w-3 h-3" />
+                  <span>Image</span>
+                </span>
+              )}
+            </div>
             <span>{timestamp}</span>
           </div>
         </div>

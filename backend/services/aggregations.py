@@ -167,11 +167,44 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
     alerts: list[Alert] = []
 
     for event in events:
-        if event.objectClass != "person":
-            continue
-
         dwell_sec = event.endTimeSec - event.startTimeSec
         event_ts = _session_time(event)
+        
+        evidence = AlertEvidence(imageUrl=event.snapshotPath, clipUrl=event.clipPath)
+
+        # ── Weapon / Crowd Rules ──────────────────────────────────────────
+        if event.objectClass == "weapon":
+            alerts.append(Alert(
+                id=_event_id(event),
+                type="WEAPON_DETECTED",
+                severity="CRITICAL",
+                title="Weapon Detected",
+                description=f"Weapon detected on camera {event.cameraId}.",
+                cameraId=event.cameraId,
+                zone=event.zone,
+                ts=event_ts,
+                evidence=evidence,
+            ))
+            continue
+            
+        elif event.objectClass == "crowd":
+            if event.dwellCategory in ("EXCESSIVE", "LONG"):
+                sev = "CRITICAL" if event.dwellCategory == "EXCESSIVE" else "HIGH"
+                alerts.append(Alert(
+                    id=_event_id(event) + "-CROWD",
+                    type="CROWD_ALERT",
+                    severity=sev,
+                    title="High Crowd Density",
+                    description=f"High crowd density level detected on camera {event.cameraId}.",
+                    cameraId=event.cameraId,
+                    zone=event.zone,
+                    ts=event_ts,
+                    evidence=evidence,
+                ))
+            continue
+
+        if event.objectClass != "person":
+            continue
 
         # Rule 1: customer in cashier zone (any dwell)
         if event.role.lower() == "customer" and "cashier" in event.zone.lower():
@@ -184,7 +217,7 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
                 cameraId=event.cameraId,
                 zone=event.zone,
                 ts=event_ts,
-                evidence=AlertEvidence(),
+                evidence=evidence,
             ))
 
         # Rule 2: EXCESSIVE dwell → LOITERING
@@ -198,7 +231,7 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
                 cameraId=event.cameraId,
                 zone=event.zone,
                 ts=event_ts,
-                evidence=AlertEvidence(),
+                evidence=evidence,
             ))
 
         # Rule 3: LONG dwell → UNUSUAL_MOTION
@@ -212,7 +245,7 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
                 cameraId=event.cameraId,
                 zone=event.zone,
                 ts=event_ts,
-                evidence=AlertEvidence(),
+                evidence=evidence,
             ))
 
         # --- Cash-specific alert rules ---
@@ -227,7 +260,7 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
                     cameraId=event.cameraId,
                     zone=event.zone,
                     ts=event_ts,
-                    evidence=AlertEvidence(),
+                    evidence=evidence,
                 ))
             elif event.cashEventType == "CASH_HANDOVER":
                 partner_info = f" to Track #{event.cashPartnerId}" if event.cashPartnerId else ""
@@ -241,7 +274,7 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
                     cameraId=event.cameraId,
                     zone=event.zone,
                     ts=event_ts,
-                    evidence=AlertEvidence(),
+                    evidence=evidence,
                 ))
             elif event.cashEventType == "CASH_POCKET":
                 alerts.append(Alert(
@@ -253,7 +286,19 @@ def _derive_alerts(events: list[TrackingEvent]) -> list[Alert]:
                     cameraId=event.cameraId,
                     zone=event.zone,
                     ts=event_ts,
-                    evidence=AlertEvidence(),
+                    evidence=evidence,
+                ))
+            elif event.cashEventType in ("UNREGISTERED_CASH", "POSSIBLE_POCKETING"):
+                alerts.append(Alert(
+                    id=_event_id(event) + "-FRAUD",
+                    type="UNREGISTERED_CASH_HANDLING" if event.cashEventType == "UNREGISTERED_CASH" else "CASH_POCKET",
+                    severity="CRITICAL",
+                    title="Unregistered Cash" if event.cashEventType == "UNREGISTERED_CASH" else "Possible Cash Pocketing",
+                    description=f"Suspicious cash handling ({event.cashEventType.replace('_', ' ').lower()}) on Track #{event.trackId}.",
+                    cameraId=event.cameraId,
+                    zone=event.zone,
+                    ts=event_ts,
+                    evidence=evidence,
                 ))
 
     return alerts

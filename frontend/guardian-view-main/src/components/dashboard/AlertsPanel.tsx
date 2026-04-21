@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { AlertItem } from "./AlertItem";
+import { AlertSnapshotModal } from "./AlertSnapshotModal";
 import { Bell, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/types";
@@ -8,6 +10,7 @@ interface AlertsPanelProps {
 }
 
 export const AlertsPanel = ({ alerts = [] }: AlertsPanelProps) => {
+  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
   const newAlertsCount = alerts.filter((a) => a.isNew).length;
 
   return (
@@ -38,11 +41,20 @@ export const AlertsPanel = ({ alerts = [] }: AlertsPanelProps) => {
               style={{ animationDelay: `${index * 100}ms` }}
               className="animate-fade-in"
             >
-              <AlertItem {...alert} />
+              <AlertItem 
+                {...alert} 
+                hasEvidence={!!alert.evidence?.imageUrl}
+                onClick={() => setSelectedAlert(alert)}
+              />
             </div>
           ))
         )}
       </div>
+      <AlertSnapshotModal
+        isOpen={!!selectedAlert}
+        onClose={() => setSelectedAlert(null)}
+        alert={selectedAlert}
+      />
     </div>
   );
 };

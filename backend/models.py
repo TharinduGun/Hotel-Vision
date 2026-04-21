@@ -37,6 +37,10 @@ class TrackingEvent(BaseModel):
     cashPartnerId: Optional[int] = None      # Partner person ID for handover events
     # Stable employee identity from face recognition (e.g. "E001")
     employeeId: Optional[str] = None
+    
+    # Media paths from pipeline
+    snapshotPath: Optional[str] = None
+    clipPath: Optional[str] = None
 
 
 # ── Dashboard Summary ──────────────────────────────────────────────────
