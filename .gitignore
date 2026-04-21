@@ -43,3 +43,23 @@ session_*/
 
 # Exceptions (Keep the basic output folder structure but ignore content)
 !output/.keep
+
+# YOLO training / validation run artifacts
+runs/
+pycode/scripts/runs/
+
+# Stray model weight files in root or non-LFS locations
+/*.pt
+
+# Training-generated plot images inside models folder
+pycode/models/**/*.png
+pycode/models/**/*.jpg
+pycode/models/**/*.csv
+
+# Datasets (large training data - not tracked in git)
+resources/datasets/
+
+# Note: pycode/models/ contains trained weights tracked via Git LFS
+
+# Temporary Local Clones
+temp_repos/
