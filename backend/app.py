@@ -34,6 +34,8 @@ from backend.api.employees import router as employees_router
 from backend.api.live import router as live_router
 from backend.api.crowd import router as crowd_router
 from backend.api.ws import router as ws_router
+from backend.api.staff import router as staff_router
+from backend.api.parking import router as parking_router
 
 # ── Logging ────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -89,6 +91,8 @@ app.include_router(alerts_router,    prefix="/api/v1")
 app.include_router(employees_router, prefix="/api/v1")
 app.include_router(live_router,      prefix="/api/v1")
 app.include_router(crowd_router,     prefix="/api/v1")
+app.include_router(staff_router,     prefix="/api/v1")
+app.include_router(parking_router,   prefix="/api/v1")
 
 # ── WebSocket (not versioned) ──────────────────────────────────────────
 app.include_router(ws_router)

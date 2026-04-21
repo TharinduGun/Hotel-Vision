@@ -1,0 +1,31 @@
+# configs/config.yaml
+
+video:
+  source: "data/videos/video5.mp4"   # or rtsp://192.168.1.100/stream1
+  frame_skip: 2                       # process every Nth frame
+
+parking:
+  total_spaces: 13
+  occupancy_full_threshold: 90        # % above which status = "full"
+  occupancy_limited_threshold: 70     # % above which status = "limited"
+
+detection:
+  model: "yolov8s.pt"                
+  tile_rows: 2
+  tile_cols: 2
+  tile_overlap: 0.2
+  conf_day: 0.25
+  conf_night: 0.20
+  low_light_threshold: 60
+
+tracker:
+  iou_threshold: 0.15
+  max_age: 20
+
+output:
+  csv_path: "data/outputs/parking_data.csv"
+  analytics_interval: 1.0             # seconds between analytics updates
+
+logging:
+  level: "INFO"                       # DEBUG / INFO / WARNING
+  file: "data/outputs/system.log"

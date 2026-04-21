@@ -47,6 +47,32 @@ _LOCATION_MAP = {
     "Outside": "Main Lobby",
 }
 
+# Face-recognition employee ID → display name
+_ID_TO_NAME = {
+    "E001": "Anabel",
+    "E002": "Irving",
+    "E003": "Rosa",
+    "E004": "Yareht",
+    "E005": "Aurora",
+    "E006": "Alejandra",
+    "E007": "Lilia",
+    "E008": "Sandra",
+    "E009": "Maria",
+    "E010": "Lizeth",
+    "E011": "Karlelis",
+    "E012": "Geraldine",
+    "E013": "Paulo",
+    "E014": "Adela",
+    "E015": "Maribel",
+    "E016": "Lilianan",
+    "E017": "Aditya",
+    "E018": "Angela",
+    "E019": "Manish",
+    "E020": "Manidhar",
+    "E021": "Supreeth",
+    "E022": "Irma",
+}
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -276,7 +302,15 @@ def build_employees(
 
     employees: list[Employee] = []
     for idx, w in enumerate(workers):
-        name = _EMPLOYEE_NAMES[idx % len(_EMPLOYEE_NAMES)]
+        # Use stable employee ID from face recognition when available;
+        # fall back to tracker-generated ID for legacy/unrecognised tracks.
+        if w.employeeId and w.employeeId not in ("unknown", ""):
+            emp_id = w.employeeId
+            name = _ID_TO_NAME.get(emp_id, emp_id)   # ID → real name
+        else:
+            emp_id = f"E{w.trackId:03d}"
+            name = _EMPLOYEE_NAMES[idx % len(_EMPLOYEE_NAMES)] if _EMPLOYEE_NAMES else emp_id
+
         location = _LOCATION_MAP.get(w.zone, w.zone)
         emp_status = "ON_DUTY" if w.dwellCategory in ("NORMAL", "LONG", "EXCESSIVE") else "BREAK"
 
@@ -284,7 +318,7 @@ def build_employees(
         last_seen_ts = _session_time(w)
 
         emp = Employee(
-            id=f"E{w.trackId:03d}",
+            id=emp_id,
             name=name,
             role=_ROLE_DISPLAY.get(w.role.lower(), w.role),
             status=emp_status,

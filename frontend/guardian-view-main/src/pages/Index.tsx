@@ -4,6 +4,7 @@ import { StatsCard } from "@/components/dashboard/StatsCard";
 import { CameraGrid } from "@/components/dashboard/CameraGrid";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
 import { EmployeeTracking } from "@/components/dashboard/EmployeeTracking";
+import { ParkingPanel } from "@/components/dashboard/ParkingPanel";
 
 import {
   Camera,
@@ -86,6 +87,14 @@ const Index = () => {
         </div>
 
         <EmployeeTracking employees={employees} />
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+          </div>
+          <div className="lg:col-span-1">
+            <ParkingPanel />
+          </div>
+        </div>
 
       </main>
     </div>

@@ -44,6 +44,7 @@ OLD_COLUMN_MAP: dict[str, list[str]] = {
     "cashEventType": ["cash_event_type", "cash_event", "cash_type"],
     "cashConfidence": ["cash_confidence", "cash_conf"],
     "cashPartnerId": ["cash_partner_id", "partner_id", "cash_partner"],
+    "employeeId":   ["employee_id", "emp_id", "staff_id"],
 }
 
 DEFAULTS: dict[str, object] = {
@@ -63,6 +64,7 @@ DEFAULTS: dict[str, object] = {
     "cashEventType": None,
     "cashConfidence": None,
     "cashPartnerId": None,
+    "employeeId": None,
 }
 
 
@@ -128,6 +130,16 @@ _EVENT_TYPE_TO_CLASS = {
     # Gun detection events
     "weapon_detected": "weapon",
     "weapon_alert": "weapon",
+    # Staff tracking events
+    "employee_idle": "person",
+    "employee_on_break": "person",
+    "employee_offline": "person",
+    "long_queue": "event",
+    # Parking events
+    "parking_full": "vehicle",
+    "parking_limited": "vehicle",
+    "parking_status_update": "vehicle",
+    "long_dwell": "vehicle",
 }
 
 # Event types that are cash-related (used to populate cashEventType)
@@ -191,6 +203,9 @@ def _parse_new_format_row(row: dict) -> Optional[TrackingEvent]:
             cash_event_type = event_type.upper().replace("FRAUD_", "")
             cash_confidence = confidence
 
+        # Employee ID (from face recognition / staff_tracking module)
+        employee_id = row.get("meta_employee_id", "").strip() or row.get("employee_id", "").strip() or None
+
         return TrackingEvent(
             split=0,
             trackId=person_id if person_id >= 0 else frame_idx,
@@ -208,6 +223,7 @@ def _parse_new_format_row(row: dict) -> Optional[TrackingEvent]:
             cashEventType=cash_event_type,
             cashConfidence=cash_confidence,
             cashPartnerId=cash_partner_id,
+            employeeId=employee_id,
         )
     except Exception as e:
         logger.warning("Failed to parse new-format row: %s", e)
@@ -243,6 +259,7 @@ def _parse_old_format_row(row: dict, col_map: dict) -> Optional[TrackingEvent]:
             cashPartnerId=_safe_int(
                 row.get(col_map.get("cashPartnerId") or "", ""), None
             ) if row.get(col_map.get("cashPartnerId") or "", "").strip() else None,
+            employeeId=row.get(col_map.get("employeeId") or "", "").strip() or None,
         )
     except Exception as e:
         logger.warning("Failed to parse old-format row: %s", e)

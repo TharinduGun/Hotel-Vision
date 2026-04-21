@@ -35,6 +35,8 @@ class TrackingEvent(BaseModel):
     cashEventType: Optional[str] = None      # CASH_PICKUP | CASH_DEPOSIT | CASH_HANDOVER | None
     cashConfidence: Optional[float] = None   # Detection confidence for cash
     cashPartnerId: Optional[int] = None      # Partner person ID for handover events
+    # Stable employee identity from face recognition (e.g. "E001")
+    employeeId: Optional[str] = None
 
 
 # ── Dashboard Summary ──────────────────────────────────────────────────

@@ -104,3 +104,35 @@ export interface LiveState {
     };
   };
 }
+
+// ── Parking types ────────────────────────────────────────────────────
+
+export type ParkingLotStatus = "available" | "limited" | "full";
+
+export interface ParkingStatus {
+  occupied: number;
+  available: number;
+  capacity: number;
+  occupancyPct: number;
+  status: ParkingLotStatus;
+  avgDwellSeconds: number;
+  totalVehiclesSeen: number;
+  vehicleTypes: Record<string, number>;
+}
+
+export interface ParkingAlert {
+  eventType: "parking_full" | "parking_limited" | "long_dwell";
+  severity: string;
+  cameraId: string;
+  ts: string;
+  occupancyPct?: number;
+  vehicleId?: number;
+  dwellMinutes?: number;
+}
+
+export interface ParkingResponse {
+  ts: string;
+  current: ParkingStatus;
+  recentAlerts: ParkingAlert[];
+  totalAlerts: number;
+}
