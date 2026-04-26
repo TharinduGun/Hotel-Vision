@@ -67,12 +67,12 @@ class HandDetector:
             interaction_threshold_px: Max distance between hands to count as an interaction
             iou_threshold: Minimum IOU to match pose detection to a person track
         """
-        self.model = model_manager.get_model(model_path, device)
+        # self.model = model_manager.get_model(model_path, device) # Model removed, using shared pose
         self.device = device
         self.keypoint_conf_threshold = keypoint_conf_threshold
         self.interaction_threshold_px = interaction_threshold_px
         self.iou_threshold = iou_threshold
-        logger.info(f"Loaded pose model: {model_path} on {device}")
+        logger.info(f"HandDetector now uses shared pose keypoints from PersonDetector")
 
     def detect_and_analyze(
         self,
@@ -96,56 +96,31 @@ class HandDetector:
             person_hands: {logical_id: [(x, y), ...]} (up to 2 wrists per person)
             interactions: List of HandInteraction events
         """
-        # Run pose estimation on the full frame
-        results = self.model.predict(
-            source=frame,
-            device=self.device,
-            verbose=False,
-            imgsz=640,
-            classes=[0]  # Only detect persons
-        )
-
         # { person_id: [ (x, y), (x, y) ] }
         person_hands = {}
         for pid in person_tracks.keys():
             person_hands[pid] = []
 
-        if not results or not results[0].keypoints or results[0].keypoints.data is None:
-            return person_hands, []
-
-        keypoints_data = results[0].keypoints.data.cpu().numpy()  # shape: (num_persons, 17, 3) -> [x, y, conf]
-        boxes_data = results[0].boxes.xyxy.cpu().numpy()          # shape: (num_persons, 4) -> [x1, y1, x2, y2]
-
-        # 1. Map pose detections to our tracked persons using IOU
-        for i in range(len(boxes_data)):
-            pose_box = boxes_data[i]
-            kpts = keypoints_data[i]
-            
-            # Find which tracked person this matches
-            best_pid = None
-            best_iou = self.iou_threshold  # Min IOU threshold
-
-            for pid, track_data in person_tracks.items():
-                track_box = track_data["bbox"]
-                iou = compute_iou(pose_box, track_box)
-                if iou > best_iou:
-                    best_iou = iou
-                    best_pid = pid
-
-            if best_pid is not None:
-                # Extract valid wrists
-                hands = []
-                # Left wrist
+        # 1. Extract wrists from shared person keypoints
+        for pid, pdata in person_tracks.items():
+            kpts = pdata.get("keypoints")
+            if not kpts:
+                continue
+                
+            hands = []
+            # Left wrist
+            if len(kpts) > self.LEFT_WRIST_IDX:
                 lw_x, lw_y, lw_conf = kpts[self.LEFT_WRIST_IDX]
                 if lw_conf >= self.keypoint_conf_threshold:
                     hands.append((int(lw_x), int(lw_y)))
-                
-                # Right wrist
+            
+            # Right wrist
+            if len(kpts) > self.RIGHT_WRIST_IDX:
                 rw_x, rw_y, rw_conf = kpts[self.RIGHT_WRIST_IDX]
                 if rw_conf >= self.keypoint_conf_threshold:
                     hands.append((int(rw_x), int(rw_y)))
-                
-                person_hands[best_pid].extend(hands)
+                    
+            person_hands[pid].extend(hands)
 
         # 2. Analyze interactions between Customers and Cashiers
         interactions = []

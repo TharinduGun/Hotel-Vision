@@ -112,12 +112,9 @@ class GunDetector:
 
     # ── Lazy pose model loading ───────────────────────────────────────
 
-    def _get_pose_model(self) -> YOLO:
-        """Load pose model on first use to avoid GPU overhead if unused."""
-        if self._pose_model is None:
-            print(f"[GunDetector] Loading pose model: {self._pose_model_path}")
-            self._pose_model = model_manager.get_model(self._pose_model_path, self.device)
-        return self._pose_model
+    def _get_pose_model(self):
+        """Deprecated: Model loading removed, using shared pose keypoints."""
+        pass
 
     # ── Public API ────────────────────────────────────────────────────
 
@@ -323,58 +320,30 @@ class GunDetector:
         persons: dict[int, dict],
     ) -> dict[int, list[tuple[float, float]]]:
         """
-        Run YOLOv8-pose on the frame and map wrist keypoints to tracked persons.
+        Extract wrist keypoints from shared person tracks.
 
         Returns:
             { person_id: [(wrist_x, wrist_y), ...] }  (up to 2 wrists per person)
         """
-        pose_model = self._get_pose_model()
-
-        results = pose_model.predict(
-            source=frame,
-            device=self.device,
-            verbose=False,
-            imgsz=640,
-            classes=[0],  # Only detect persons
-        )
-
-        # Initialize empty wrists for all persons
         person_wrists: dict[int, list[tuple[float, float]]] = {
             pid: [] for pid in persons
         }
 
-        if (not results
-                or not results[0].keypoints
-                or results[0].keypoints.data is None):
-            return person_wrists
-
-        kp_data = results[0].keypoints.data.cpu().numpy()   # (N, 17, 3)
-        pose_boxes = results[0].boxes.xyxy.cpu().numpy()     # (N, 4)
-
-        # Map each pose detection to a tracked person via IOU
-        for i in range(len(pose_boxes)):
-            pose_box = pose_boxes[i]
-            kpts = kp_data[i]
-
-            best_pid = None
-            best_iou = 0.3  # Minimum IOU threshold
-
-            for pid, pdata in persons.items():
-                track_box = pdata["bbox"]
-                iou = self._compute_iou(pose_box, track_box)
-                if iou > best_iou:
-                    best_iou = iou
-                    best_pid = pid
-
-            if best_pid is not None:
-                # Extract valid wrists
+        for pid, pdata in persons.items():
+            kpts = pdata.get("keypoints")
+            if not kpts:
+                continue
+                
+            # Extract valid wrists
+            if len(kpts) > self.LEFT_WRIST_IDX:
                 lw_x, lw_y, lw_conf = kpts[self.LEFT_WRIST_IDX]
                 if lw_conf >= 0.3:
-                    person_wrists[best_pid].append((float(lw_x), float(lw_y)))
+                    person_wrists[pid].append((float(lw_x), float(lw_y)))
 
+            if len(kpts) > self.RIGHT_WRIST_IDX:
                 rw_x, rw_y, rw_conf = kpts[self.RIGHT_WRIST_IDX]
                 if rw_conf >= 0.3:
-                    person_wrists[best_pid].append((float(rw_x), float(rw_y)))
+                    person_wrists[pid].append((float(rw_x), float(rw_y)))
 
         return person_wrists
 

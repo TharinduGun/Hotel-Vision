@@ -89,8 +89,15 @@ class PersonDetector:
             ids = results[0].boxes.id.int().cpu().tolist()
             cls = results[0].boxes.cls.int().cpu().tolist()
             boxes = results[0].boxes.xyxy.cpu().tolist()
-            for tid, c, box in zip(ids, cls, boxes):
-                tracks[tid] = {"bbox": box, "cls": c}
+            kpts = None
+            if results[0].keypoints is not None and results[0].keypoints.data is not None:
+                kpts = results[0].keypoints.data.cpu().tolist()
+                
+            for i, (tid, c, box) in enumerate(zip(ids, cls, boxes)):
+                track_data = {"bbox": box, "cls": c}
+                if kpts is not None and i < len(kpts):
+                    track_data["keypoints"] = kpts[i]
+                tracks[tid] = track_data
 
         return tracks
 
@@ -110,8 +117,15 @@ class PersonDetector:
             ids = result.boxes.id.int().cpu().tolist()
             cls_list = result.boxes.cls.int().cpu().tolist()
             boxes = result.boxes.xyxy.cpu().tolist()
-            for tid, c, box in zip(ids, cls_list, boxes):
-                tracks[tid] = {"bbox": box, "cls": c}
+            kpts = None
+            if result.keypoints is not None and result.keypoints.data is not None:
+                kpts = result.keypoints.data.cpu().tolist()
+                
+            for i, (tid, c, box) in enumerate(zip(ids, cls_list, boxes)):
+                track_data = {"bbox": box, "cls": c}
+                if kpts is not None and i < len(kpts):
+                    track_data["keypoints"] = kpts[i]
+                tracks[tid] = track_data
         return tracks
 
     def shutdown(self):
